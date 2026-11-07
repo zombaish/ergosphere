@@ -80,3 +80,12 @@ M9 Dust messages + bootstrap puzzle (Ch.3)
 M10 Time dilation decks (Ch.4)
 M11 See-through portals (render targets), Gargantua shader
 M12 Spine + Reach (Ch.5), room laws, Loom finale (6-7), endings
+
+## Status: M1 done (needs your phone test)
+- M0 done and confirmed. M1 built: rooms from data, doors, HUD, Notebook.
+- js/levels/deck0.js is data only (rooms, walls, doors, props, scenery, seams, notebook entries). stage.js is no longer used.
+- js/engine/rooms.js builds meshes + collision from level data and returns `world` (same shape as before: bounds, boxes, spawn; plus rooms, roomAt(), update(dt,state)). Closed doors are AABBs in world.boxes; they are removed while a door is open.
+- js/systems/game.js holds all puzzle state as one plain cloneable object (`state`): doors, items, inventory, notebook. Events (`open:d1`, `pickup:keycard`, `enter:<room>`, ...) unlock and cross off Notebook entries.
+- Controls: E / USE interacts, N / NOTES opens the Notebook, hold X / RESET restores the current room (soft-lock escape).
+- Progress is not saved yet (save.js still only stores settings).
+- Next: M2 (W-layers). Do not start until asked.
