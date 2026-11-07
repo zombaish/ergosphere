@@ -103,11 +103,17 @@ export function createGame(data, world, ui) {
     return room.safe;
   };
 
+  const seenAny = u => [].concat(u).some(e => state.seen[e]);
+  const tip = () => {
+    for (const s of data.tutorial || []) { if (seenAny(s.until)) continue; return state.seen[s.on] ? s.text : ''; }
+    return '';
+  };
+
   const notebookView = () => data.notebook.filter(e => state.nb[e.id]).map(e => {
     const n = state.nb[e.id], lv = hintLevel(e, n, state.t), all = e.hints || [];
     return { id: e.id, title: e.title, text: e.text, done: n.done, at: n.at,
       hints: all.slice(0, lv), more: !n.done && lv < all.length };
   }).sort((a, b) => (a.done - b.done) || (a.at - b.at));
 
-  return { state, emit, start: () => emit('start'), update, target, activate, reset, notebookView };
+  return { state, emit, tip, start: () => emit('start'), update, target, activate, reset, notebookView };
 }

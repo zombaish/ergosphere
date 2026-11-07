@@ -57,6 +57,14 @@ export default {
     { x: -10.2, z: -8.5, w: 1.0, d: 1.6, h: 1.6 },
   ],
   seams: [{ x: 2.82, y: 1.5, z: -20, ry: -Math.PI / 2, w: 3, h: 2 }], // portals go here in M5
+  // Guided tips (top centre). Sequential: a tip shows once "on" has happened and until "until" (event or list) has.
+  tutorial: [
+    { on: 'enter:antechamber', until: 'w:move', text: 'The hatch says: leave the plane. Hold {W} to slide along W, the fourth axis.' },
+    { on: 'w:move', until: ['w:1', 'w:2', 'w:3', 'w:4', 'w:5', 'w:6'], text: 'Let go to settle on a whole layer. A quick tap flips the slide direction.' },
+    { on: 'w:move', until: 'see:d4', text: 'Face the north wall and change layers. One layer has a door in it. Try W 2.' },
+    { on: 'see:d4', until: 'open:d4', text: 'A door that only exists at W 2! Stay on W 2, face it and press {USE}.' },
+    { on: 'enter:dormitory', until: 'w:3', text: 'Slide W again. The sphere is a slice of a 4D ball: biggest at W 3.' },
+  ],
   // Auto-filling Notebook. An entry unlocks on event "on", is crossed off on event "done",
   // and reveals one hint per hintAfter seconds (game time) while it is still open.
   notebook: [

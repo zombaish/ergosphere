@@ -46,6 +46,7 @@ const toggleNotebook = () => (notebook.isOpen() ? closeNotebook() : openNotebook
 function wUi() {
   const wl = game.state.wl, lay = Math.round(wl.w);
   hud.setW(wl.w, wl.dir);
+  hud.setTip(game.tip().replace('{W}', touch ? 'the W button' : 'Shift or F').replace('{USE}', touch ? 'USE' : 'E'));
   if (!wMoved && wl.held > 0.3) { wMoved = true; game.emit('w:move'); }
   if (Math.abs(wl.w - lay) < 0.02 && lay !== lastLayer) { lastLayer = lay; game.emit('w:' + lay); }
   if (wl.blocked && !wasBlocked) hud.toast('Blocked: something solid fills that layer here.');

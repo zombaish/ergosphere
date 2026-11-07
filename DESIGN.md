@@ -91,3 +91,4 @@ M12 Spine + Reach (Ch.5), room laws, Loom finale (6-7), endings
 - deck0.js: new Dormitory room, door d4 that exists only at W 2 (sealed by fillers at other layers), hypersphere at W 3, new Notebook entries. Seam surface moved to the east wall of the antechamber.
 - Not done on purpose: W-lens ghosts, tesseract morph (Chapter 5). Progress is still not saved.
 - Next: M3 (procedural audio). Do not start until asked.
+- M2.5: guided W tutorial tips (tutorial[] in deck0.js, game.tip(), HUD tip box).
