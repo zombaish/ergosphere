@@ -5,8 +5,10 @@ import { stepW } from './systems/wlayer.js';
 import { initMenu } from './ui/menu.js';
 import { initTouch } from './ui/touch.js';
 import { initHud } from './ui/hud.js';
+import { initTheme } from './ui/theme.js';
 import { initNotebook } from './ui/notebook.js';
 
+initTheme();
 const $ = id => document.getElementById(id);
 const canvas = $('game'), msg = $('msg');
 const settings = loadSettings();
@@ -24,8 +26,8 @@ const notebook = initNotebook({ close: () => closeNotebook() });
 
 const menu = initMenu(settings, saveSettings, {
   onChange: s => { input.sens = s.sens; },
-  onOpen: () => { paused = true; input.reset(); notebook.close(); document.exitPointerLock?.(); },
-  onClose: () => { if (started) { paused = false; lock(); } },
+  onOpen: () => { document.body.classList.add('menu-open'); paused = true; input.reset(); notebook.close(); document.exitPointerLock?.(); },
+  onClose: () => { document.body.classList.remove('menu-open'); if (started) { paused = false; lock(); } },
 });
 if (touch) initTouch(input);
 

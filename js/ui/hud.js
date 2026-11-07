@@ -1,71 +1,79 @@
-// HUD: room name, inventory, interaction prompt, toasts, reading panel, reset bar, touch buttons.
+// HUD: room, W gauge, tip, inventory, prompt, toasts, reading panel, reset bar, touch buttons.
 const CSS = `
-#hud{position:fixed;inset:0;pointer-events:none;z-index:5;font:13px/1.35 ui-monospace,Menlo,monospace;color:#cfe0ff;text-shadow:0 1px 3px #000}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:5;font:12px/1.4 ui-monospace,Menlo,monospace;color:#cfe9ff;text-shadow:0 1px 3px #000}
 #hud[hidden]{display:none}
-#hud .tl{position:absolute;top:10px;left:12px;display:flex;flex-direction:column;gap:6px;max-width:60vw}
-#hud .room{letter-spacing:.08em;text-transform:uppercase;opacity:.85}
+#hud .top{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:5px}
+#hud .room{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#9fc4d8;white-space:nowrap}
+#hud .wc{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:5px 12px 4px;text-align:center;letter-spacing:.12em;font-size:11px}
+#hud .wp{display:flex;gap:3px;margin-bottom:3px}
+#hud .wp i{width:14px;height:5px;border-radius:2px;background:var(--c);opacity:.2}
+#hud .tl{position:absolute;top:10px;left:12px;display:flex;flex-direction:column;gap:6px;max-width:28vw}
 #hud .inv{display:flex;gap:6px;flex-wrap:wrap}
-#hud .chip{border:1px solid #ffb030;color:#ffd080;padding:1px 7px;border-radius:3px;background:#0008;font-size:12px}
-#hud .nbh{opacity:.55;font-size:12px}
-#hud .nbh.new,#hud .nb.new{opacity:1;color:#ffd080;border-color:#ffb030}
+#hud .chip{border:1px solid #ffb030;color:#ffd080;padding:1px 7px;border-radius:6px;background:var(--bg);font-size:11px}
+#hud .nbh{opacity:.5;font-size:11px}
+#hud .nbh.new{opacity:1;color:#ffd080}
 #hud.touch .nbh{display:none}
-#hud .wc{position:absolute;top:10px;left:50%;transform:translateX(-50%);text-align:center;letter-spacing:.1em}
-#hud .wp{display:flex;gap:4px;justify-content:center;margin-bottom:3px}
-#hud .wp i{width:16px;height:7px;border:1px solid #7fe8ff;background:#7fe8ff;opacity:.2}
-#hud .tip{position:absolute;top:56px;left:50%;transform:translateX(-50%);width:min(88vw,380px);text-align:center;background:#000a;border:1px solid #4a5a80;padding:5px 10px;font-size:12px;color:#ffd080}
+#hud .tip{position:absolute;top:80px;left:50%;transform:translateX(-50%);width:min(60vw,270px);text-align:center;background:var(--bg);border:1px solid rgba(255,208,128,.5);border-radius:8px;padding:6px 10px;font-size:11px;color:#ffd080}
 #hud .tip:empty{display:none}
 #hud .toasts{position:absolute;left:50%;bottom:30%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;width:90vw}
-#hud .toast{background:#000a;padding:4px 10px;border-radius:3px;transition:opacity .5s;text-align:center}
-#hud .prompt{position:absolute;left:50%;bottom:19%;transform:translateX(-50%);background:#000a;padding:5px 12px;border:1px solid #6f86c8;border-radius:4px;white-space:nowrap}
+#hud .toast{background:var(--bg);border:1px solid var(--bd);padding:4px 12px;border-radius:8px;transition:opacity .5s;text-align:center}
+#hud .prompt{position:absolute;left:50%;bottom:19%;transform:translateX(-50%);background:var(--bg);padding:6px 14px;border:1px solid var(--c);border-radius:8px;white-space:nowrap;color:var(--c)}
 #hud .prompt:empty{display:none}
-#hud .say{display:none;position:absolute;top:13%;left:50%;transform:translateX(-50%);width:min(86vw,420px);background:#0a0c14e6;border:1px solid #4a5a80;padding:10px 14px;pointer-events:auto;white-space:pre-line}
+#hud .say{display:none;position:absolute;top:22%;left:50%;transform:translateX(-50%);width:min(86vw,420px);background:rgba(7,12,24,.88);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;pointer-events:auto;white-space:pre-line}
 #hud .say.on{display:block}
-#hud .say b{display:block;margin-bottom:4px;color:#7fe8ff;letter-spacing:.06em}
-#hud .rbar{display:none;position:absolute;left:50%;bottom:11%;width:150px;height:6px;margin-left:-75px;background:#0008;border:1px solid #6f86c8}
+#hud .say b{display:block;margin-bottom:5px;color:var(--c);letter-spacing:.1em}
+#hud .rbar{display:none;position:absolute;left:50%;bottom:11%;width:150px;height:6px;margin-left:-75px;background:var(--bg);border:1px solid var(--bd);border-radius:3px;overflow:hidden}
 #hud .rbar.on{display:block}
 #hud .rbar i{display:block;height:100%;width:0;background:#ff6a4a}
-#hud .btns{position:absolute;right:12px;top:34%;display:flex;flex-direction:column;gap:14px;align-items:center}
-#hud .btns button{pointer-events:auto;border-radius:50%;border:2px solid #6f86c8;background:#10162a99;color:#cfe0ff;font:bold 11px ui-monospace,monospace;touch-action:none;user-select:none;-webkit-user-select:none}
-#hud .btns .use{width:66px;height:66px;font-size:14px}
-#hud .btns .nb,#hud .btns .rs{width:50px;height:50px}`;
+#hud .btns{position:absolute;right:14px;top:42%}
+#hud .pills{position:absolute;right:14px;top:58px;display:flex;flex-direction:column;gap:8px}
+#hud button{pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#cfe9ff;background:var(--bg);border:1px solid var(--bd);border-radius:10px}
+#hud button:active{background:rgba(127,232,255,.25)}
+#hud .use{width:72px;height:72px;font-size:13px;border-color:var(--c);color:var(--c)}
+#hud .nb,#hud .rs{width:70px;height:32px}
+#hud .nb.new{border-color:#ffb030;color:#ffd080}`;
 
 export function initHud(touch, cb) {
   const st = document.createElement('style'); st.textContent = CSS; document.head.append(st);
   const root = document.createElement('div'); root.id = 'hud'; root.hidden = true;
   if (touch) root.classList.add('touch');
-  root.innerHTML = '<div class="tl"><div class="room"></div><div class="inv"></div><div class="nbh">[N] notebook</div></div>' +
-    '<div class="say"><b></b><span></span></div><div class="toasts"></div><div class="prompt"></div>' +
-    '<div class="rbar"><i></i></div><div class="wc"><div class="wp">' + '<i></i>'.repeat(7) + '</div><span>W 0.0</span></div><div class="tip"></div>';
+  root.innerHTML = '<div class="top"><div class="room"></div><div class="wc"><div class="wp">' + '<i></i>'.repeat(7) +
+    '</div><span>W 0.0</span></div></div><div class="tl"><div class="inv"></div><div class="nbh">[N] notebook</div></div>' +
+    '<div class="tip"></div><div class="say"><b></b><span></span></div><div class="toasts"></div><div class="prompt"></div>' +
+    '<div class="rbar"><i></i></div>';
   document.body.append(root);
   const q = s => root.querySelector(s);
   const room = q('.room'), inv = q('.inv'), nbh = q('.nbh'), say = q('.say'), toasts = q('.toasts');
-  const prompt = q('.prompt'), rbar = q('.rbar'), rfill = q('.rbar i');
-  const pips = [...root.querySelectorAll('.wp i')], wtxt = q('.wc span');
-  const tipEl = q('.tip');
+  const prompt = q('.prompt'), rbar = q('.rbar'), rfill = q('.rbar i'), tipEl = q('.tip'), wtxt = q('.wc span');
+  const pips = [...root.querySelectorAll('.wp i')];
   say.onclick = () => say.classList.remove('on');
   let notesBtn = null, sayT = 0;
 
   if (touch) {
     const btns = document.createElement('div'); btns.className = 'btns';
-    const mk = (cls, label, down, up) => {
+    const pills = document.createElement('div'); pills.className = 'pills';
+    const mk = (cls, label, parent, down, up) => {
       const b = document.createElement('button'); b.className = cls; b.textContent = label;
       const stop = e => { e.preventDefault(); e.stopPropagation(); };
       b.addEventListener('touchstart', e => { stop(e); down(); }, { passive: false });
       for (const ev of ['touchend', 'touchcancel']) b.addEventListener(ev, e => { stop(e); if (up) up(); }, { passive: false });
-      btns.append(b); return b;
+      parent.append(b); return b;
     };
-    notesBtn = mk('nb', 'NOTES', cb.notebook);
-    mk('use', 'USE', cb.use);
-    mk('rs', 'HOLD RESET', () => cb.reset(true), () => cb.reset(false));
-    root.append(btns);
+    notesBtn = mk('nb', 'NOTES', pills, cb.notebook);
+    mk('rs', 'RESET', pills, () => cb.reset(true), () => cb.reset(false));
+    mk('use', 'USE', btns, cb.use);
+    root.append(btns, pills);
   }
 
   return {
     show: () => { root.hidden = false; },
-    setW: (w, dir) => { pips.forEach((p, i) => { p.style.opacity = Math.max(0.2, 1 - Math.abs(w - i)); }); wtxt.textContent = 'W ' + w.toFixed(1) + (dir > 0 ? ' \u25b2' : ' \u25bc'); },
-    setTip: s => { if (tipEl.textContent !== s) tipEl.textContent = s; },
     setRoom: n => { room.textContent = n; },
     setPrompt: s => { if (prompt.textContent !== s) prompt.textContent = s; },
+    setTip: s => { if (tipEl.textContent !== s) tipEl.textContent = s; },
+    setW: (w, dir) => {
+      pips.forEach((p, i) => { p.style.opacity = Math.max(0.2, 1 - Math.abs(w - i)); });
+      wtxt.textContent = 'W ' + w.toFixed(1) + (dir > 0 ? ' \u25b2' : ' \u25bc');
+    },
     setInv: names => { inv.replaceChildren(...names.map(n => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = n; return c; })); },
     setReset: p => { rbar.classList.toggle('on', p > 0); rfill.style.width = Math.min(100, p * 100) + '%'; },
     ping: on => { nbh.classList.toggle('new', on); nbh.textContent = on ? '[N] notebook \u2022 new' : '[N] notebook'; if (notesBtn) notesBtn.classList.toggle('new', on); },

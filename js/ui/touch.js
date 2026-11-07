@@ -29,6 +29,8 @@ export function initTouch(input) {
 
   document.querySelectorAll('#btns button').forEach(b => {
     const k = b.dataset.b;
+    const L = { w: 'W', portal: 'PORTAL', rewind: 'REWIND' };
+    if (L[k]) b.textContent = L[k];
     b.addEventListener('pointerdown', () => { input.btn[k] = true; });
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => b.addEventListener(t, () => { input.btn[k] = false; }));
   });
