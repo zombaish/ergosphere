@@ -22,6 +22,9 @@ export function buildLevel(THREE, scene, data) {
   };
   const mesh = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
   const box = (w, h, d, m, x, y, z) => { const o = mesh(w, h, d, m); o.position.set(x, y, z); scene.add(o); return o; };
+  const near = (w, c, wt) => Math.abs(w - c) <= wt;
+  const fade = (w, c, wt) => { const d = Math.abs(w - c); return d <= wt ? 1 : Math.max(0, (wt + 0.5 - d) / 0.5); };
+  const wMat = m => { const c = m.clone(); c.transparent = true; return c; };
   const statics = [];
   const solid = (minX, maxX, minZ, maxZ) => statics.push({ minX, maxX, minZ, maxZ });
 
@@ -61,16 +64,16 @@ export function buildLevel(THREE, scene, data) {
   const doors = {};
   for (const d of data.doors) {
     const zAx = d.ax === 'z', x = zAx ? d.pos : d.at, z = zAx ? d.at : d.pos, th = T * 0.8;
-    const m = mat('door', DW * 0.5, DH * 0.5);
+    const m = d.w != null ? wMat(mat('door', DW * 0.5, DH * 0.5)) : mat('door', DW * 0.5, DH * 0.5);
     const panel = zAx ? box(DW, DH, th, m, x, DH / 2, z) : box(th, DH, DW, m, x, DH / 2, z);
-    const ind = new THREE.MeshBasicMaterial({ color: DOOR_COL.closed });
+    const ind = new THREE.MeshBasicMaterial({ color: DOOR_COL.closed, transparent: d.w != null });
     const strip = zAx ? mesh(0.16, 0.9, th + 0.04, ind) : mesh(th + 0.04, 0.9, 0.16, ind);
     strip.position.set(zAx ? DW / 2 - 0.25 : 0, 0.1, zAx ? 0 : DW / 2 - 0.25);
     panel.add(strip);
     const aabb = zAx ? { minX: x - DW / 2, maxX: x + DW / 2, minZ: z - T / 2, maxZ: z + T / 2 }
       : { minX: x - T / 2, maxX: x + T / 2, minZ: z - DW / 2, maxZ: z + DW / 2 };
     const open = d.open ? 1 : 0;
-    doors[d.id] = { panel, ind, aabb, open, blocking: open < 0.7 };
+    doors[d.id] = { panel, ind, aabb, open, blocking: open < 0.7, w: d.w, wt: d.wt ?? 0.6 };
   }
 
   // props: floating pickups and solid consoles
@@ -95,6 +98,39 @@ export function buildLevel(THREE, scene, data) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), new THREE.MeshBasicMaterial({ color: 0x7a4dff }));
     m.position.set(s.x, s.y, s.z); m.rotation.y = s.ry || 0; scene.add(m);
   }
+  // W objects: blocks (fillers, walls) and hyperspheres (cross-section radius sqrt(r^2 - dW^2))
+  const wobjs = (data.wobjs || []).map(o => {
+    let m;
+    if (o.kind === 'sphere') {
+      m = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshLambertMaterial({ color: o.color || 0x6fe0ff, transparent: true, opacity: 0.9 }));
+      m.position.set(o.x, o.y, o.z);
+    } else {
+      m = mesh(o.sx, o.h, o.sz, wMat(mat('wall', o.sx * 0.5, o.h * 0.625)));
+      m.position.set(o.x, o.h / 2, o.z);
+    }
+    scene.add(m); return { ...o, m };
+  });
+  const sph = (o, w) => { const dw = Math.abs(w - o.w); return dw < o.r ? Math.sqrt(o.r * o.r - dw * dw) : 0; };
+  const dynAt = w => {
+    const out = [];
+    for (const o of wobjs) {
+      if (o.kind === 'sphere') { const h = sph(o, w) * 0.8; if (h > 0.15) out.push({ minX: o.x - h, maxX: o.x + h, minZ: o.z - h, maxZ: o.z + h }); }
+      else if (near(w, o.w, o.wt)) out.push({ minX: o.x - o.sx / 2, maxX: o.x + o.sx / 2, minZ: o.z - o.sz / 2, maxZ: o.z + o.sz / 2 });
+    }
+    for (const id in doors) { const D = doors[id]; if (D.w != null && D.blocking && near(w, D.w, D.wt)) out.push(D.aabb); }
+    return out;
+  };
+  let curW = 0;
+  const paint = () => {
+    for (const o of wobjs) {
+      if (o.kind === 'sphere') { const rr = sph(o, curW); o.m.visible = rr > 0.05; o.m.scale.setScalar(Math.max(rr, 0.001)); }
+      else { const a = fade(curW, o.w, o.wt); o.m.visible = a > 0; o.m.material.opacity = a; }
+    }
+    for (const id in doors) {
+      const D = doors[id]; if (D.w == null) continue;
+      const a = fade(curW, D.w, D.wt); D.panel.visible = a > 0; D.panel.material.opacity = a; D.ind.opacity = a;
+    }
+  };
   scene.add(new THREE.AmbientLight(0x6070a0, 2.2));
 
   const R = data.rooms, B = Math.min, X = Math.max;
@@ -106,12 +142,16 @@ export function buildLevel(THREE, scene, data) {
   };
   const rebuild = () => {
     world.boxes.length = 0; world.boxes.push(...statics);
-    for (const id in doors) if (doors[id].blocking) world.boxes.push(doors[id].aabb);
+    for (const id in doors) if (doors[id].blocking && doors[id].w == null) world.boxes.push(doors[id].aabb);
+    world.boxes.push(...dynAt(curW));
   };
-  rebuild();
+  world.setW = w => { if (w === curW) return; curW = w; paint(); rebuild(); };
+  world.wBlocked = (x, z, r, w) => dynAt(w).some(b => x > b.minX - r && x < b.maxX + r && z > b.minZ - r && z < b.maxZ + r);
+  paint(); rebuild();
 
   // sync visuals to state (dt = 0 while paused)
   world.update = (dt, state) => {
+    world.setW(state.wl.w);
     let changed = false;
     for (const id in doors) {
       const D = doors[id], S = state.doors[id];

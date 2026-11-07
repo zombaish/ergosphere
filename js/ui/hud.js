@@ -9,6 +9,9 @@ const CSS = `
 #hud .nbh{opacity:.55;font-size:12px}
 #hud .nbh.new,#hud .nb.new{opacity:1;color:#ffd080;border-color:#ffb030}
 #hud.touch .nbh{display:none}
+#hud .wc{position:absolute;top:10px;left:50%;transform:translateX(-50%);text-align:center;letter-spacing:.1em}
+#hud .wp{display:flex;gap:4px;justify-content:center;margin-bottom:3px}
+#hud .wp i{width:16px;height:7px;border:1px solid #7fe8ff;background:#7fe8ff;opacity:.2}
 #hud .toasts{position:absolute;left:50%;bottom:30%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;width:90vw}
 #hud .toast{background:#000a;padding:4px 10px;border-radius:3px;transition:opacity .5s;text-align:center}
 #hud .prompt{position:absolute;left:50%;bottom:19%;transform:translateX(-50%);background:#000a;padding:5px 12px;border:1px solid #6f86c8;border-radius:4px;white-space:nowrap}
@@ -30,11 +33,12 @@ export function initHud(touch, cb) {
   if (touch) root.classList.add('touch');
   root.innerHTML = '<div class="tl"><div class="room"></div><div class="inv"></div><div class="nbh">[N] notebook</div></div>' +
     '<div class="say"><b></b><span></span></div><div class="toasts"></div><div class="prompt"></div>' +
-    '<div class="rbar"><i></i></div>';
+    '<div class="rbar"><i></i></div><div class="wc"><div class="wp">' + '<i></i>'.repeat(7) + '</div><span>W 0.0</span></div>';
   document.body.append(root);
   const q = s => root.querySelector(s);
   const room = q('.room'), inv = q('.inv'), nbh = q('.nbh'), say = q('.say'), toasts = q('.toasts');
   const prompt = q('.prompt'), rbar = q('.rbar'), rfill = q('.rbar i');
+  const pips = [...root.querySelectorAll('.wp i')], wtxt = q('.wc span');
   say.onclick = () => say.classList.remove('on');
   let notesBtn = null, sayT = 0;
 
@@ -55,6 +59,7 @@ export function initHud(touch, cb) {
 
   return {
     show: () => { root.hidden = false; },
+    setW: (w, dir) => { pips.forEach((p, i) => { p.style.opacity = Math.max(0.2, 1 - Math.abs(w - i)); }); wtxt.textContent = 'W ' + w.toFixed(1) + (dir > 0 ? ' \u25b2' : ' \u25bc'); },
     setRoom: n => { room.textContent = n; },
     setPrompt: s => { if (prompt.textContent !== s) prompt.textContent = s; },
     setInv: names => { inv.replaceChildren(...names.map(n => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = n; return c; })); },

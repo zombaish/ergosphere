@@ -1,0 +1,673 @@
+=== js/main.js ===
+import { loadSettings, saveSettings } from './systems/save.js';
+import { Input } from './engine/input.js';
+import { Player } from './engine/player.js';
+import { initMenu } from './ui/menu.js';
+import { initTouch } from './ui/touch.js';
+import { initHud } from './ui/hud.js';
+import { initNotebook } from './ui/notebook.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('game'), msg = $('msg');
+const settings = loadSettings();
+const touch = matchMedia('(pointer:coarse)').matches || 'ontouchstart' in window;
+const input = new Input(canvas);
+let started = false, paused = true;
+let game = null, player = null, target = null, holding = false, holdT = 0;
+const pos = { x: 0, z: 0 };
+const HOLD = 1.5; // seconds to hold Reset
+const lock = () => { if (!touch) try { canvas.requestPointerLock(); } catch {} };
+
+const hud = initHud(touch, { use: () => use(), notebook: () => toggleNotebook(), reset: v => { holding = v; } });
+const notebook = initNotebook({ close: () => closeNotebook() });
+
+const menu = initMenu(settings, saveSettings, {
+  onChange: s => { input.sens = s.sens; },
+  onOpen: () => { paused = true; input.reset(); notebook.close(); document.exitPointerLock?.(); },
+  onClose: () => { if (started) { paused = false; lock(); } },
+});
+if (touch) initTouch(input);
+
+function use() {
+  if (!started || paused || !game) return;
+  if (target) game.activate(target, pos.x, pos.z); else hud.clearSay();
+}
+function openNotebook() {
+  if (!started || !game || menu.isOpen()) return;
+  paused = true; input.reset(); document.exitPointerLock?.();
+  notebook.open(game.notebookView()); hud.ping(false);
+}
+function closeNotebook() {
+  notebook.close();
+  if (started && !menu.isOpen()) { paused = false; lock(); }
+}
+const toggleNotebook = () => (notebook.isOpen() ? closeNotebook() : openNotebook());
+function doReset() {
+  const safe = game.reset();
+  if (!safe) return;
+  const t = Number.isFinite(player.x) ? player : (player.pos && Number.isFinite(player.pos.x) ? player.pos : null);
+  if (t) { t.x = safe.x; t.z = safe.z; } else console.warn('reset: could not find player position');
+}
+
+addEventListener('keydown', e => {
+  if (e.repeat || !started || menu.isOpen()) return;
+  if (e.code === 'KeyN' || e.code === 'Tab') { e.preventDefault(); toggleNotebook(); }
+  else if (paused) return;
+  else if (e.code === 'KeyE') use();
+  else if (e.code === 'KeyX') holding = true;
+});
+addEventListener('keyup', e => { if (e.code === 'KeyX') holding = false; });
+
+$('go').onclick = () => {
+  $('start').hidden = true; started = true; paused = false; lock();
+  hud.show(); game.start();
+  msg.textContent = touch ? 'USE interacts · NOTES opens notebook · hold RESET if stuck'
+    : 'WASD move · mouse look · E use · N notebook · hold X reset · Esc menu';
+  setTimeout(() => { msg.textContent = ''; }, 7000);
+};
+document.addEventListener('pointerlockchange', () => {
+  if (!touch && started && !document.pointerLockElement && !menu.isOpen() && !notebook.isOpen()) menu.open();
+});
+canvas.addEventListener('click', () => { if (started && !paused) lock(); });
+
+async function boot() {
+  try {
+    const { createRenderer } = await import('./engine/renderer.js');
+    const { buildLevel } = await import('./engine/rooms.js');
+    const { createGame } = await import('./systems/game.js');
+    const data = (await import('./levels/deck0.js')).default;
+    const gfx = createRenderer(canvas);
+    const world = buildLevel(gfx.THREE, gfx.scene, data);
+    game = createGame(data, world, {
+      room: n => hud.setRoom(n),
+      toast: m => hud.toast(m),
+      say: (t, x) => hud.say(t, x),
+      inv: names => hud.setInv(names),
+      entry: e => { hud.toast('Notebook: ' + e.title); hud.ping(true); },
+      hint: () => { hud.toast('New hint in Notebook'); hud.ping(true); },
+    });
+    player = new Player(world.spawn.x, world.spawn.z);
+    const cam = gfx.camera.position, dir = new gfx.THREE.Vector3();
+    const STEP = 1 / 60;
+    let acc = 0, last = performance.now();
+    const frame = now => {
+      requestAnimationFrame(frame);
+      const dt = (now - last) / 1000; last = now;
+      if (!paused) {
+        acc = Math.min(acc + dt, 0.25);
+        while (acc >= STEP) { player.step(input.sample(), world); acc -= STEP; }
+      }
+      player.applyTo(gfx.camera);
+      gfx.lamp.position.copy(gfx.camera.position);
+      if (!paused) {
+        gfx.camera.getWorldDirection(dir);
+        const n = Math.hypot(dir.x, dir.z) || 1;
+        pos.x = cam.x; pos.z = cam.z;
+        game.update(Math.min(dt, 0.1), cam.x, cam.z);
+        target = game.target(cam.x, cam.z, dir.x / n, dir.z / n);
+        hud.setPrompt(target ? (touch ? 'USE' : 'E') + ' \u00b7 ' + target.prompt : '');
+        if (holding) {
+          holdT += dt; hud.setReset(holdT / HOLD);
+          if (holdT >= HOLD) { doReset(); holding = false; holdT = 0; hud.setReset(0); }
+        } else if (holdT) { holdT = 0; hud.setReset(0); }
+      }
+      world.update(paused ? 0 : Math.min(dt, 0.1), game.state);
+      gfx.render();
+    };
+    requestAnimationFrame(frame);
+    $('go').disabled = false;
+  } catch (e) {
+    console.error(e);
+    $('start').querySelector('p').textContent =
+      'Could not start (' + e.message + '). Is lib/three.module.js vendored? See DESIGN.md.';
+  }
+}
+boot();
+=== js/engine/rooms.js ===
+// Builds meshes + collision from level data (js/levels/*.js). Visuals follow game state via update().
+import { makeTex } from './textures.js';
+const T = 0.3; // wall thickness
+const DOOR_COL = { locked: 0xff3030, closed: 0x4aa8ff, open: 0x30ff80 };
+
+export function buildLevel(THREE, scene, data) {
+  const H = data.height, DH = data.doorHeight, DW = data.doorWidth;
+  const tex = {
+    floor: makeTex(THREE, '#2a2d38', '#23262f', 8, 32, 1),
+    wall: makeTex(THREE, '#3a3340', '#332d38', 16, 32, 2),
+    door: makeTex(THREE, '#4a4f5c', '#40444f', 6, 32, 4),
+    crate: makeTex(THREE, '#5a4630', '#4d3b28', 4, 32, 3),
+  };
+  const cache = {};
+  const mat = (k, rx, ry) => {
+    const id = k + rx.toFixed(1) + '_' + ry.toFixed(1);
+    if (!cache[id]) {
+      const c = tex[k].clone(); c.repeat.set(rx, ry); c.needsUpdate = true;
+      cache[id] = new THREE.MeshLambertMaterial({ map: c });
+    }
+    return cache[id];
+  };
+  const mesh = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  const box = (w, h, d, m, x, y, z) => { const o = mesh(w, h, d, m); o.position.set(x, y, z); scene.add(o); return o; };
+  const statics = [];
+  const solid = (minX, maxX, minZ, maxZ) => statics.push({ minX, maxX, minZ, maxZ });
+
+  // rooms: floor, ceiling, accent light
+  for (const r of data.rooms) {
+    const w = r.maxX - r.minX, d = r.maxZ - r.minZ, cx = (r.minX + r.maxX) / 2, cz = (r.minZ + r.maxZ) / 2;
+    for (const [y, rx] of [[0, -Math.PI / 2], [H, Math.PI / 2]]) {
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat('floor', w * 0.5, d * 0.5));
+      p.rotation.x = rx; p.position.set(cx, y, cz); scene.add(p);
+    }
+    if (r.light) {
+      const l = new THREE.PointLight(r.light.color, r.light.i, 14, 1);
+      l.position.set(cx, H - 0.5, cz); scene.add(l);
+    }
+  }
+
+  // walls, cut around doors (lintel stays above each doorway)
+  const wallBox = (ax, at, u0, u1, y0, y1, hard) => {
+    const len = u1 - u0, uc = (u0 + u1) / 2, h = y1 - y0, m = mat('wall', len * 0.5, h * 0.625);
+    if (ax === 'z') box(len, h, T, m, uc, y0 + h / 2, at); else box(T, h, len, m, at, y0 + h / 2, uc);
+    if (hard) { if (ax === 'z') solid(u0, u1, at - T / 2, at + T / 2); else solid(at - T / 2, at + T / 2, u0, u1); }
+  };
+  for (const w of data.walls) {
+    const ds = data.doors.filter(d => d.ax === w.ax && d.at === w.at && d.pos > w.from && d.pos < w.to)
+      .sort((a, b) => a.pos - b.pos);
+    let u = w.from - T / 2;
+    for (const d of ds) {
+      const g0 = d.pos - DW / 2, g1 = d.pos + DW / 2;
+      if (g0 - u > 0.01) wallBox(w.ax, w.at, u, g0, 0, H, true);
+      wallBox(w.ax, w.at, g0, g1, DH, H, false);
+      u = g1;
+    }
+    wallBox(w.ax, w.at, u, w.to + T / 2, 0, H, true);
+  }
+
+  // doors: sliding panel + status strip (red locked / blue closed / green open)
+  const doors = {};
+  for (const d of data.doors) {
+    const zAx = d.ax === 'z', x = zAx ? d.pos : d.at, z = zAx ? d.at : d.pos, th = T * 0.8;
+    const m = mat('door', DW * 0.5, DH * 0.5);
+    const panel = zAx ? box(DW, DH, th, m, x, DH / 2, z) : box(th, DH, DW, m, x, DH / 2, z);
+    const ind = new THREE.MeshBasicMaterial({ color: DOOR_COL.closed });
+    const strip = zAx ? mesh(0.16, 0.9, th + 0.04, ind) : mesh(th + 0.04, 0.9, 0.16, ind);
+    strip.position.set(zAx ? DW / 2 - 0.25 : 0, 0.1, zAx ? 0 : DW / 2 - 0.25);
+    panel.add(strip);
+    const aabb = zAx ? { minX: x - DW / 2, maxX: x + DW / 2, minZ: z - T / 2, maxZ: z + T / 2 }
+      : { minX: x - T / 2, maxX: x + T / 2, minZ: z - DW / 2, maxZ: z + DW / 2 };
+    const open = d.open ? 1 : 0;
+    doors[d.id] = { panel, ind, aabb, open, blocking: open < 0.7 };
+  }
+
+  // props: floating pickups and solid consoles
+  const props = {};
+  for (const p of data.props) {
+    let o;
+    if (p.kind === 'item') o = box(0.28, 0.28, 0.28, new THREE.MeshBasicMaterial({ color: p.color || 0xffffff }), p.x, 0.9, p.z);
+    else {
+      const w = p.w || 0.5, d = p.d || 0.5;
+      o = box(w, 1.1, d, mat('crate', 1, 1), p.x, 0.55, p.z);
+      const scr = mesh(w * 0.7, 0.05, d * 0.7, new THREE.MeshBasicMaterial({ color: 0x40e0ff }));
+      scr.position.y = 0.57; o.add(scr);
+      solid(p.x - w / 2, p.x + w / 2, p.z - d / 2, p.z + d / 2);
+    }
+    props[p.id] = { o, kind: p.kind };
+  }
+  for (const s of data.scenery || []) {
+    box(s.w, s.h, s.d, mat('crate', Math.max(s.w, s.d), s.h * 0.6), s.x, s.h / 2, s.z);
+    solid(s.x - s.w / 2, s.x + s.w / 2, s.z - s.d / 2, s.z + s.d / 2);
+  }
+  for (const s of data.seams || []) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), new THREE.MeshBasicMaterial({ color: 0x7a4dff }));
+    m.position.set(s.x, s.y, s.z); m.rotation.y = s.ry || 0; scene.add(m);
+  }
+  scene.add(new THREE.AmbientLight(0x6070a0, 2.2));
+
+  const R = data.rooms, B = Math.min, X = Math.max;
+  const world = {
+    bounds: { minX: B(...R.map(r => r.minX)) - 1, maxX: X(...R.map(r => r.maxX)) + 1,
+      minZ: B(...R.map(r => r.minZ)) - 1, maxZ: X(...R.map(r => r.maxZ)) + 1 },
+    boxes: [], spawn: data.spawn, rooms: R,
+    roomAt: (x, z) => R.find(r => x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ) || null,
+  };
+  const rebuild = () => {
+    world.boxes.length = 0; world.boxes.push(...statics);
+    for (const id in doors) if (doors[id].blocking) world.boxes.push(doors[id].aabb);
+  };
+  rebuild();
+
+  // sync visuals to state (dt = 0 while paused)
+  world.update = (dt, state) => {
+    let changed = false;
+    for (const id in doors) {
+      const D = doors[id], S = state.doors[id];
+      D.open += Math.max(-dt * 1.8, Math.min(dt * 1.8, (S.open ? 1 : 0) - D.open));
+      D.panel.position.y = DH / 2 + D.open * DH;
+      const blocking = D.open < 0.7;
+      if (blocking !== D.blocking) { D.blocking = blocking; changed = true; }
+      D.ind.color.setHex(S.locked ? DOOR_COL.locked : S.open ? DOOR_COL.open : DOOR_COL.closed);
+    }
+    if (changed) rebuild();
+    for (const id in props) {
+      const P = props[id];
+      if (P.kind !== 'item') continue;
+      P.o.visible = !state.items[id].taken;
+      P.o.position.y = 0.9 + Math.sin(state.t * 2.2) * 0.06;
+      P.o.rotation.y = state.t * 0.8;
+    }
+  };
+  return world;
+}
+=== js/engine/player.js ===
+import { moveCircle } from './collision.js';
+const DT = 1 / 60, SPEED = 3.2, R = 0.3, EYE = 1.6;
+export class Player {
+  constructor(x, z) { this.x = x; this.z = z; this.yaw = 0; this.pitch = 0; this.bob = 0; this.speed = 0; }
+  step(f, world) {
+    this.yaw -= f.dyaw;
+    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - f.dpitch));
+    const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
+    moveCircle(this, (c * f.mx - s * f.mz) * SPEED * DT, (-s * f.mx - c * f.mz) * SPEED * DT, R, world);
+    this.speed = Math.hypot(f.mx, f.mz);
+    this.bob += this.speed * DT * 9;
+  }
+  applyTo(cam) {
+    cam.position.set(this.x, EYE + Math.sin(this.bob) * 0.025 * Math.min(1, this.speed), this.z);
+    cam.rotation.order = 'YXZ';
+    cam.rotation.set(this.pitch, this.yaw, 0);
+  }
+}
+=== js/engine/collision.js ===
+// world = { bounds:{minX,maxX,minZ,maxZ}, boxes:[{minX,maxX,minZ,maxZ}] }
+const hit = (p, r, b) => p.x > b.minX - r && p.x < b.maxX + r && p.z > b.minZ - r && p.z < b.maxZ + r;
+export function moveCircle(p, dx, dz, r, w) {
+  p.x += dx;
+  for (const b of w.boxes) if (hit(p, r, b)) p.x = dx > 0 ? b.minX - r : b.maxX + r;
+  p.z += dz;
+  for (const b of w.boxes) if (hit(p, r, b)) p.z = dz > 0 ? b.minZ - r : b.maxZ + r;
+  const B = w.bounds;
+  p.x = Math.min(B.maxX - r, Math.max(B.minX + r, p.x));
+  p.z = Math.min(B.maxZ - r, Math.max(B.minZ + r, p.z));
+}
+=== js/engine/input.js ===
+// Samples input once per tick into a plain frame object (echo-friendly).
+export class Input {
+  constructor(canvas) {
+    this.keys = new Set();
+    this.look = { x: 0, y: 0 };
+    this.stick = { x: 0, y: 0 };
+    this.btn = { w: false, portal: false, rewind: false };
+    this.sens = 1;
+    addEventListener('keydown', e => {
+      this.keys.add(e.code);
+      if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+    });
+    addEventListener('keyup', e => this.keys.delete(e.code));
+    addEventListener('blur', () => this.keys.clear());
+    addEventListener('mousemove', e => {
+      if (document.pointerLockElement === canvas) this.addLook(e.movementX * 0.0022, e.movementY * 0.0022);
+    });
+  }
+  addLook(dx, dy) { this.look.x += dx * this.sens; this.look.y += dy * this.sens; }
+  reset() { this.keys.clear(); this.stick.x = this.stick.y = 0; this.look.x = this.look.y = 0; }
+  sample() {
+    const k = c => (this.keys.has(c) ? 1 : 0);
+    let mx = k('KeyD') + k('ArrowRight') - k('KeyA') - k('ArrowLeft') + this.stick.x;
+    let mz = k('KeyW') + k('ArrowUp') - k('KeyS') - k('ArrowDown') + this.stick.y;
+    const m = Math.hypot(mx, mz);
+    if (m > 1) { mx /= m; mz /= m; }
+    const f = {
+      mx, mz, dyaw: this.look.x, dpitch: this.look.y,
+      w: !!(k('ShiftLeft') || k('KeyF') || this.btn.w),
+      portal: !!(k('KeyQ') || this.btn.portal),
+      rewind: !!(k('KeyR') || this.btn.rewind),
+    };
+    this.look.x = this.look.y = 0;
+    return f;
+  }
+}
+=== js/levels/deck0.js ===
+// Deck 0 (Chapter 0: The Open Airlock). DATA ONLY: no THREE here.
+// Coordinates: x east, z south; the player starts facing -z.
+// Walls: ax 'z' = wall running along X at z=at; ax 'x' = wall running along Z at x=at.
+// A door sits in a wall (same ax/at) at coordinate pos. Room laws arrive in later chapters.
+export default {
+  id: 'deck0', name: 'Deck 0', height: 3.2, doorHeight: 2.4, doorWidth: 1.6,
+  spawn: { x: 0, z: 6 },
+  rooms: [
+    { id: 'airlock', name: 'Airlock', minX: -3, maxX: 3, minZ: 0, maxZ: 8, safe: { x: 0, z: 5 }, light: { color: 0xffd9a0, i: 3 } },
+    { id: 'corridor', name: 'Main Corridor', minX: -3, maxX: 3, minZ: -16, maxZ: 0, safe: { x: 0, z: -6 }, light: { color: 0x9fb8ff, i: 3 } },
+    { id: 'storage', name: 'Storage', minX: -11, maxX: -3, minZ: -12, maxZ: -4, safe: { x: -5, z: -8 }, light: { color: 0xffc080, i: 3 } },
+    { id: 'antechamber', name: 'Dormitory Antechamber', minX: -3, maxX: 3, minZ: -24, maxZ: -16, safe: { x: 0, z: -20 }, light: { color: 0xb090ff, i: 3 } },
+  ],
+  walls: [
+    { ax: 'z', at: 8, from: -3, to: 3 },
+    { ax: 'z', at: 0, from: -3, to: 3 },
+    { ax: 'z', at: -16, from: -3, to: 3 },
+    { ax: 'z', at: -24, from: -3, to: 3 },
+    { ax: 'x', at: 3, from: -24, to: 8 },
+    { ax: 'x', at: -3, from: -24, to: 8 },
+    { ax: 'z', at: -4, from: -11, to: -3 },
+    { ax: 'z', at: -12, from: -11, to: -3 },
+    { ax: 'x', at: -11, from: -12, to: -4 },
+  ],
+  doors: [
+    { id: 'd1', ax: 'z', at: 0, pos: 0, rooms: ['airlock', 'corridor'], label: 'airlock door' },
+    { id: 'd2', ax: 'x', at: -3, pos: -8, rooms: ['corridor', 'storage'], label: 'storage door' },
+    { id: 'd3', ax: 'z', at: -16, pos: 0, rooms: ['corridor', 'antechamber'], key: 'keycard',
+      label: 'dormitory door', lockedMsg: 'Locked. The panel wants a keycard.' },
+  ],
+  // kind 'item' = pick up (goes in inventory under its id); 'note' = readable console (solid).
+  props: [
+    { id: 'log_airlock', kind: 'note', name: 'Airlock log', home: 'airlock', x: 2.65, z: 5, w: 0.4, d: 0.9,
+      text: 'AIRLOCK LOG, last entry\nLOOM spin-up 03:12.\n"Everyone is still here. Everyone is still here. Everyone is still' },
+    { id: 'keycard', kind: 'item', name: 'Dormitory keycard', home: 'storage', x: -9.5, z: -10.5, color: 0xffb030 },
+    { id: 'hatch_note', kind: 'note', name: 'Hatch panel', home: 'antechamber', x: -2.65, z: -20, w: 0.4, d: 0.9,
+      text: 'HATCH 1A, DORMITORY\nSeals on loss of crew.\nOverride requires leaving the plane.\nNOT AVAILABLE.' },
+  ],
+  scenery: [
+    { x: -2.0, z: 7.0, w: 1.0, d: 1.0, h: 0.9 },
+    { x: 2.1, z: -7, w: 0.7, d: 0.7, h: 3.2 },
+    { x: -9.2, z: -5.3, w: 1.6, d: 1.0, h: 1.1 },
+    { x: -5.0, z: -11.0, w: 1.2, d: 1.2, h: 2.2 },
+    { x: -10.2, z: -8.5, w: 1.0, d: 1.6, h: 1.6 },
+  ],
+  seams: [{ x: 0, y: 1.5, z: -23.82, ry: 0, w: 3, h: 2 }], // portals go here in M5
+  // Auto-filling Notebook. An entry unlocks on event "on", is crossed off on event "done",
+  // and reveals one hint per hintAfter seconds (game time) while it is still open.
+  notebook: [
+    { id: 'wake', on: 'start', done: 'open:d1', title: 'Wake up',
+      text: 'Station Ergosphere, Deck 0. The airlock was already open when I woke. Nobody answers.',
+      hints: ['Walk up to the door ahead and use it.'], hintAfter: 30 },
+    { id: 'log', on: 'read:log_airlock', title: 'Airlock log',
+      text: 'The last log entry stops mid-sentence. The LOOM spun up and then everyone was gone.' },
+    { id: 'sealed', on: 'locked:d3', done: 'unlock:d3', title: 'Dormitory door is locked',
+      text: 'The door at the end of the corridor wants a keycard. A red light means locked.',
+      hints: ['A keycard must be somewhere nearby. Try the other doors off the corridor.',
+        'The storage room on the west side of the corridor. Look for something glowing amber.'], hintAfter: 40 },
+    { id: 'card', on: 'pickup:keycard', done: 'unlock:d3', title: 'Keycard',
+      text: 'A dormitory keycard. It has to fit the locked door at the end of the corridor.',
+      hints: ['Take it to the red-lit door at the north end of the corridor.'], hintAfter: 30 },
+    { id: 'ante', on: 'enter:antechamber', title: 'Dormitory antechamber',
+      text: 'The hatch is sealed and the far wall glows violet. I can do nothing about either yet.' },
+  ],
+};
+=== js/systems/game.js ===
+// Game logic. State is a plain cloneable object so rewind/echoes can snapshot it later (M6+).
+const REACH = 2.1, CONE = 0.5;
+const dpos = d => (d.ax === 'z' ? { x: d.pos, z: d.at } : { x: d.at, z: d.pos });
+
+export function hintLevel(e, n, t) {
+  if (n.done || !e.hints) return 0;
+  return Math.min(e.hints.length, Math.floor((t - n.at) / (e.hintAfter || 45)));
+}
+
+export function createGame(data, world, ui) {
+  const defs = {}, props = {};
+  data.doors.forEach(d => { defs[d.id] = d; });
+  data.props.forEach(p => { props[p.id] = p; });
+  const state = { t: 0, room: null, inv: [], doors: {}, items: {}, nb: {}, nbLvl: {}, seen: {} };
+  const resetDoor = id => { state.doors[id] = { open: !!defs[id].open, locked: !!defs[id].key }; };
+  data.doors.forEach(d => resetDoor(d.id));
+  data.props.forEach(p => { if (p.kind === 'item') state.items[p.id] = { taken: false }; });
+  const syncInv = () => ui.inv(state.inv.map(id => (props[id] ? props[id].name : id)));
+
+  // Events drive the Notebook: "on" unlocks an entry, "done" crosses it off.
+  const emit = ev => {
+    state.seen[ev] = true;
+    for (const e of data.notebook) {
+      if (e.on === ev && !state.nb[e.id]) {
+        state.nb[e.id] = { at: state.t, done: !!(e.done && state.seen[e.done]) };
+        ui.entry(e);
+      }
+      if (e.done === ev && state.nb[e.id]) state.nb[e.id].done = true;
+    }
+  };
+
+  const update = (dt, px, pz) => {
+    state.t += dt;
+    const r = world.roomAt(px, pz);
+    if (r && r.id !== state.room) { state.room = r.id; ui.room(r.name); emit('enter:' + r.id); }
+    for (const e of data.notebook) {
+      const n = state.nb[e.id];
+      if (!n) continue;
+      const lv = hintLevel(e, n, state.t);
+      if (lv > (state.nbLvl[e.id] || 0)) { state.nbLvl[e.id] = lv; ui.hint(e); }
+    }
+  };
+
+  // What is the player looking at / standing next to? Returns {kind,id,prompt} or null.
+  const target = (px, pz, dx, dz) => {
+    const here = world.roomAt(px, pz);
+    let best = null, bs = 1e9;
+    const consider = (kind, id, x, z, prompt) => {
+      const vx = x - px, vz = z - pz, dist = Math.hypot(vx, vz);
+      if (dist > REACH) return;
+      const dot = dist < 0.01 ? 1 : (vx * dx + vz * dz) / dist;
+      if (dist > 0.8 && dot < CONE) return;
+      if (dist - dot < bs) { bs = dist - dot; best = { kind, id, prompt }; }
+    };
+    for (const d of data.doors) {
+      const s = state.doors[d.id], c = dpos(d);
+      const act = s.locked ? (state.inv.includes(d.key) ? 'unlock ' : '') : s.open ? 'close ' : 'open ';
+      consider('door', d.id, c.x, c.z, act + d.label + (s.locked && !act ? ' (locked)' : ''));
+    }
+    for (const p of data.props) {
+      if (!here || here.id !== p.home) continue;
+      if (p.kind === 'item') { if (!state.items[p.id].taken) consider('item', p.id, p.x, p.z, 'pick up ' + p.name.toLowerCase()); }
+      else consider('note', p.id, p.x, p.z, 'read ' + p.name.toLowerCase());
+    }
+    return best;
+  };
+
+  const activate = (t, px, pz) => {
+    if (t.kind === 'door') {
+      const d = defs[t.id], s = state.doors[t.id], c = dpos(d);
+      if (s.locked) {
+        if (d.key && state.inv.includes(d.key)) {
+          s.locked = false; s.open = true; ui.toast('Keycard accepted.');
+          emit('unlock:' + t.id); emit('open:' + t.id);
+        } else { ui.toast(d.lockedMsg || 'Locked.'); emit('locked:' + t.id); }
+      } else if (s.open) {
+        if (Math.hypot(c.x - px, c.z - pz) < 1.1) ui.toast('Something is in the way.');
+        else { s.open = false; emit('close:' + t.id); }
+      } else { s.open = true; emit('open:' + t.id); }
+    } else if (t.kind === 'item') {
+      state.items[t.id].taken = true; state.inv.push(t.id); syncInv();
+      ui.toast('Picked up: ' + props[t.id].name); emit('pickup:' + t.id);
+    } else {
+      ui.say(props[t.id].name, props[t.id].text); emit('read:' + t.id);
+    }
+  };
+
+  // Soft-lock escape: restore the current room's doors and items; returns a safe spot to move to.
+  const reset = () => {
+    const room = data.rooms.find(r => r.id === state.room);
+    if (!room) return null;
+    data.doors.forEach(d => { if (d.rooms.includes(room.id)) resetDoor(d.id); });
+    data.props.forEach(p => {
+      if (p.kind === 'item' && p.home === room.id && !state.inv.includes(p.id)) state.items[p.id].taken = false;
+    });
+    ui.toast('Room restored.'); emit('reset:' + room.id);
+    return room.safe;
+  };
+
+  const notebookView = () => data.notebook.filter(e => state.nb[e.id]).map(e => {
+    const n = state.nb[e.id], lv = hintLevel(e, n, state.t), all = e.hints || [];
+    return { id: e.id, title: e.title, text: e.text, done: n.done, at: n.at,
+      hints: all.slice(0, lv), more: !n.done && lv < all.length };
+  }).sort((a, b) => (a.done - b.done) || (a.at - b.at));
+
+  return { state, start: () => emit('start'), update, target, activate, reset, notebookView };
+}
+=== js/ui/hud.js ===
+// HUD: room name, inventory, interaction prompt, toasts, reading panel, reset bar, touch buttons.
+const CSS = `
+#hud{position:fixed;inset:0;pointer-events:none;z-index:5;font:13px/1.35 ui-monospace,Menlo,monospace;color:#cfe0ff;text-shadow:0 1px 3px #000}
+#hud[hidden]{display:none}
+#hud .tl{position:absolute;top:10px;left:12px;display:flex;flex-direction:column;gap:6px;max-width:60vw}
+#hud .room{letter-spacing:.08em;text-transform:uppercase;opacity:.85}
+#hud .inv{display:flex;gap:6px;flex-wrap:wrap}
+#hud .chip{border:1px solid #ffb030;color:#ffd080;padding:1px 7px;border-radius:3px;background:#0008;font-size:12px}
+#hud .nbh{opacity:.55;font-size:12px}
+#hud .nbh.new,#hud .nb.new{opacity:1;color:#ffd080;border-color:#ffb030}
+#hud.touch .nbh{display:none}
+#hud .toasts{position:absolute;left:50%;bottom:30%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:4px;width:90vw}
+#hud .toast{background:#000a;padding:4px 10px;border-radius:3px;transition:opacity .5s;text-align:center}
+#hud .prompt{position:absolute;left:50%;bottom:19%;transform:translateX(-50%);background:#000a;padding:5px 12px;border:1px solid #6f86c8;border-radius:4px;white-space:nowrap}
+#hud .prompt:empty{display:none}
+#hud .say{display:none;position:absolute;top:13%;left:50%;transform:translateX(-50%);width:min(86vw,420px);background:#0a0c14e6;border:1px solid #4a5a80;padding:10px 14px;pointer-events:auto;white-space:pre-line}
+#hud .say.on{display:block}
+#hud .say b{display:block;margin-bottom:4px;color:#7fe8ff;letter-spacing:.06em}
+#hud .rbar{display:none;position:absolute;left:50%;bottom:11%;width:150px;height:6px;margin-left:-75px;background:#0008;border:1px solid #6f86c8}
+#hud .rbar.on{display:block}
+#hud .rbar i{display:block;height:100%;width:0;background:#ff6a4a}
+#hud .btns{position:absolute;right:12px;top:34%;display:flex;flex-direction:column;gap:14px;align-items:center}
+#hud .btns button{pointer-events:auto;border-radius:50%;border:2px solid #6f86c8;background:#10162a99;color:#cfe0ff;font:bold 11px ui-monospace,monospace;touch-action:none;user-select:none;-webkit-user-select:none}
+#hud .btns .use{width:66px;height:66px;font-size:14px}
+#hud .btns .nb,#hud .btns .rs{width:50px;height:50px}`;
+
+export function initHud(touch, cb) {
+  const st = document.createElement('style'); st.textContent = CSS; document.head.append(st);
+  const root = document.createElement('div'); root.id = 'hud'; root.hidden = true;
+  if (touch) root.classList.add('touch');
+  root.innerHTML = '<div class="tl"><div class="room"></div><div class="inv"></div><div class="nbh">[N] notebook</div></div>' +
+    '<div class="say"><b></b><span></span></div><div class="toasts"></div><div class="prompt"></div>' +
+    '<div class="rbar"><i></i></div>';
+  document.body.append(root);
+  const q = s => root.querySelector(s);
+  const room = q('.room'), inv = q('.inv'), nbh = q('.nbh'), say = q('.say'), toasts = q('.toasts');
+  const prompt = q('.prompt'), rbar = q('.rbar'), rfill = q('.rbar i');
+  say.onclick = () => say.classList.remove('on');
+  let notesBtn = null, sayT = 0;
+
+  if (touch) {
+    const btns = document.createElement('div'); btns.className = 'btns';
+    const mk = (cls, label, down, up) => {
+      const b = document.createElement('button'); b.className = cls; b.textContent = label;
+      const stop = e => { e.preventDefault(); e.stopPropagation(); };
+      b.addEventListener('touchstart', e => { stop(e); down(); }, { passive: false });
+      for (const ev of ['touchend', 'touchcancel']) b.addEventListener(ev, e => { stop(e); if (up) up(); }, { passive: false });
+      btns.append(b); return b;
+    };
+    notesBtn = mk('nb', 'NOTES', cb.notebook);
+    mk('use', 'USE', cb.use);
+    mk('rs', 'HOLD RESET', () => cb.reset(true), () => cb.reset(false));
+    root.append(btns);
+  }
+
+  return {
+    show: () => { root.hidden = false; },
+    setRoom: n => { room.textContent = n; },
+    setPrompt: s => { if (prompt.textContent !== s) prompt.textContent = s; },
+    setInv: names => { inv.replaceChildren(...names.map(n => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = n; return c; })); },
+    setReset: p => { rbar.classList.toggle('on', p > 0); rfill.style.width = Math.min(100, p * 100) + '%'; },
+    ping: on => { nbh.classList.toggle('new', on); nbh.textContent = on ? '[N] notebook \u2022 new' : '[N] notebook'; if (notesBtn) notesBtn.classList.toggle('new', on); },
+    clearSay: () => say.classList.remove('on'),
+    toast: (msg, ms = 2800) => {
+      const d = document.createElement('div'); d.className = 'toast'; d.textContent = msg; toasts.append(d);
+      while (toasts.children.length > 3) toasts.firstChild.remove();
+      setTimeout(() => { d.style.opacity = 0; setTimeout(() => d.remove(), 500); }, ms);
+    },
+    say: (title, text, ms = 14000) => {
+      say.querySelector('b').textContent = title; say.querySelector('span').textContent = text;
+      say.classList.add('on'); clearTimeout(sayT); sayT = setTimeout(() => say.classList.remove('on'), ms);
+    },
+  };
+}
+=== js/ui/touch.js ===
+const $ = id => document.getElementById(id);
+export function initTouch(input) {
+  $('touch').hidden = false;
+  const base = $('stick'), nub = $('nub'), look = $('lookzone'), R = 50;
+  let sid = null, lid = null, lx = 0, ly = 0;
+  const move = e => {
+    const r = base.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const m = Math.hypot(dx, dy);
+    if (m > R) { dx *= R / m; dy *= R / m; }
+    nub.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    input.stick.x = dx / R; input.stick.y = -dy / R;
+  };
+  const endStick = e => {
+    if (e.pointerId !== sid) return;
+    sid = null; input.stick.x = input.stick.y = 0; nub.style.transform = 'translate(-50%,-50%)';
+  };
+  base.addEventListener('pointerdown', e => { sid = e.pointerId; base.setPointerCapture(sid); move(e); });
+  base.addEventListener('pointermove', e => { if (e.pointerId === sid) move(e); });
+  base.addEventListener('pointerup', endStick); base.addEventListener('pointercancel', endStick);
+
+  look.addEventListener('pointerdown', e => { lid = e.pointerId; lx = e.clientX; ly = e.clientY; look.setPointerCapture(lid); });
+  look.addEventListener('pointermove', e => {
+    if (e.pointerId !== lid) return;
+    input.addLook((e.clientX - lx) * 0.006, (e.clientY - ly) * 0.006); lx = e.clientX; ly = e.clientY;
+  });
+  const endLook = e => { if (e.pointerId === lid) lid = null; };
+  look.addEventListener('pointerup', endLook); look.addEventListener('pointercancel', endLook);
+
+  document.querySelectorAll('#btns button').forEach(b => {
+    const k = b.dataset.b;
+    b.addEventListener('pointerdown', () => { input.btn[k] = true; });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => b.addEventListener(t, () => { input.btn[k] = false; }));
+  });
+}
+=== js/ui/notebook.js ===
+// Notebook overlay. Entries come from game.notebookView(); hints fill in on their own over time.
+const CSS = `
+#notebook{display:none;position:fixed;inset:0;z-index:30;background:#05060ae8;overflow-y:auto;color:#d8e2ff;font:14px/1.45 ui-monospace,Menlo,monospace}
+#notebook.on{display:block}
+#notebook .pg{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+#notebook header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;letter-spacing:.12em}
+#notebook header button{font:inherit;background:#10162a;color:#cfe0ff;border:1px solid #6f86c8;border-radius:4px;padding:6px 14px}
+#notebook article{border-left:3px solid #7fe8ff;padding:2px 0 2px 10px;margin:0 0 16px}
+#notebook article.done{border-color:#3b4a66;opacity:.6}
+#notebook h3{margin:0 0 4px;font-size:15px;color:#7fe8ff}
+#notebook article.done h3{text-decoration:line-through;color:#8a9ab8}
+#notebook p{margin:0 0 6px;white-space:pre-line}
+#notebook .hint{color:#ffd080;margin:4px 0}
+#notebook .more{color:#6a7898;font-size:12px}`;
+
+export function initNotebook(cb) {
+  const st = document.createElement('style'); st.textContent = CSS; document.head.append(st);
+  const root = document.createElement('div'); root.id = 'notebook';
+  root.innerHTML = '<div class="pg"><header><span>NOTEBOOK</span><button type="button">CLOSE</button></header><div class="list"></div></div>';
+  document.body.append(root);
+  const list = root.querySelector('.list');
+  root.querySelector('button').onclick = () => cb.close();
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; e.textContent = text; return e; };
+
+  const render = entries => {
+    list.replaceChildren();
+    if (!entries.length) list.append(el('p', 'more', 'Nothing written yet.'));
+    for (const e of entries) {
+      const a = el('article', e.done ? 'done' : '', '');
+      a.append(el('h3', '', (e.done ? '\u2713 ' : '') + e.title), el('p', '', e.text));
+      for (const h of e.hints) a.append(el('div', 'hint', 'Hint: ' + h));
+      if (e.more) a.append(el('div', 'more', 'More hints appear here if you stay stuck.'));
+      list.append(a);
+    }
+  };
+  return {
+    open: entries => { render(entries); root.classList.add('on'); root.scrollTop = 0; },
+    close: () => root.classList.remove('on'),
+    isOpen: () => root.classList.contains('on'),
+  };
+}
+=== docs/solutions.md ===
+# Solutions
+One entry per puzzle: room, goal, step-by-step solution, Notebook hint text, soft-lock escape.
+(No puzzles yet.)
+
+## Deck 0 (M1): The Open Airlock
+
+**Goal:** reach the Dormitory Antechamber (door d3 at the north end of the corridor is locked).
+
+**Solution**
+1. Airlock: walk to the door ahead (north) and use it (E / USE). It opens.
+2. Corridor: the west door (about halfway along, left wall) opens into Storage.
+3. Storage: the amber floating cube at the back-left (about x -9.5, z -10.5) is the Dormitory keycard. Pick it up.
+4. Back in the corridor, go to the red-lit door at the far north end and use it. The keycard unlocks it (it is not consumed).
+
+**Notebook hints (auto-fill):** entry "Dormitory door is locked" appears when you try d3. Hint 1 after 40 s, hint 2 after 80 s of staying stuck.
+
+**Soft-lock escape:** hold Reset (X, or the RESET button) for 1.5 s. It restores the doors and items of the room you are in and moves you to that room's safe spot. In this deck nothing can actually be lost (the keycard is never consumed), so Reset is only a safety net.

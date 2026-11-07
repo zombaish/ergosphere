@@ -81,11 +81,13 @@ M10 Time dilation decks (Ch.4)
 M11 See-through portals (render targets), Gargantua shader
 M12 Spine + Reach (Ch.5), room laws, Loom finale (6-7), endings
 
-## Status: M1 done (needs your phone test)
-- M0 done and confirmed. M1 built: rooms from data, doors, HUD, Notebook.
-- js/levels/deck0.js is data only (rooms, walls, doors, props, scenery, seams, notebook entries). stage.js is no longer used.
-- js/engine/rooms.js builds meshes + collision from level data and returns `world` (same shape as before: bounds, boxes, spawn; plus rooms, roomAt(), update(dt,state)). Closed doors are AABBs in world.boxes; they are removed while a door is open.
-- js/systems/game.js holds all puzzle state as one plain cloneable object (`state`): doors, items, inventory, notebook. Events (`open:d1`, `pickup:keycard`, `enter:<room>`, ...) unlock and cross off Notebook entries.
-- Controls: E / USE interacts, N / NOTES opens the Notebook, hold X / RESET restores the current room (soft-lock escape).
-- Progress is not saved yet (save.js still only stores settings).
-- Next: M2 (W-layers). Do not start until asked.
+## Status: M2 done (needs your phone test)
+
+- M0, M1 done and confirmed. M2 built: W-layers.
+- js/systems/wlayer.js: W state lives in `state.wl` {w, dir, held, ...}; `stepW(state.wl, frame, player, world)` runs once per tick after Player.step. Hold = slide along W 0..6 (bounces at the ends), release = settle on nearest layer, quick tap (<0.22 s) = flip direction. Refuses to slide into something solid ("blocked").
+- Level data: `wobjs` (blocks and spheres with `w` centre and `wt` half-thickness) plus optional `w`/`wt` on doors. Visible and solid while |W - w| <= wt, fades just outside. Hypersphere cross-section radius = sqrt(r^2 - dW^2) (collision is an inscribed square).
+- rooms.js: `world.setW(w)`, `world.wBlocked(x,z,r,w)`; world.boxes now include W-solid objects at the current W.
+- HUD: W gauge at top centre (7 pips, W value, slide direction). Events: `w:move`, `w:<layer>`, `see:<door>`.
+- deck0.js: new Dormitory room, door d4 that exists only at W 2 (sealed by fillers at other layers), hypersphere at W 3, new Notebook entries. Seam surface moved to the east wall of the antechamber.
+- Not done on purpose: W-lens ghosts, tesseract morph (Chapter 5). Progress is still not saved.
+- Next: M3 (procedural audio). Do not start until asked.

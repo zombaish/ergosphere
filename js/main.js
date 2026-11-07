@@ -1,6 +1,7 @@
 import { loadSettings, saveSettings } from './systems/save.js';
 import { Input } from './engine/input.js';
 import { Player } from './engine/player.js';
+import { stepW } from './systems/wlayer.js';
 import { initMenu } from './ui/menu.js';
 import { initTouch } from './ui/touch.js';
 import { initHud } from './ui/hud.js';
@@ -12,6 +13,7 @@ const settings = loadSettings();
 const touch = matchMedia('(pointer:coarse)').matches || 'ontouchstart' in window;
 const input = new Input(canvas);
 let started = false, paused = true;
+let lastLayer = -1, wMoved = false, wasBlocked = false;
 let game = null, player = null, target = null, holding = false, holdT = 0;
 const pos = { x: 0, z: 0 };
 const HOLD = 1.5; // seconds to hold Reset
@@ -41,6 +43,14 @@ function closeNotebook() {
   if (started && !menu.isOpen()) { paused = false; lock(); }
 }
 const toggleNotebook = () => (notebook.isOpen() ? closeNotebook() : openNotebook());
+function wUi() {
+  const wl = game.state.wl, lay = Math.round(wl.w);
+  hud.setW(wl.w, wl.dir);
+  if (!wMoved && wl.held > 0.3) { wMoved = true; game.emit('w:move'); }
+  if (Math.abs(wl.w - lay) < 0.02 && lay !== lastLayer) { lastLayer = lay; game.emit('w:' + lay); }
+  if (wl.blocked && !wasBlocked) hud.toast('Blocked: something solid fills that layer here.');
+  wasBlocked = wl.blocked;
+}
 function doReset() {
   const safe = game.reset();
   if (!safe) return;
@@ -94,9 +104,16 @@ async function boot() {
       const dt = (now - last) / 1000; last = now;
       if (!paused) {
         acc = Math.min(acc + dt, 0.25);
-        while (acc >= STEP) { player.step(input.sample(), world); acc -= STEP; }
+        while (acc >= STEP) {
+          const f = input.sample();
+          player.step(f, world);
+          stepW(game.state.wl, f, player, world);
+          world.setW(game.state.wl.w);
+          acc -= STEP;
+        }
       }
       player.applyTo(gfx.camera);
+      if (game) wUi();
       gfx.lamp.position.copy(gfx.camera.position);
       if (!paused) {
         gfx.camera.getWorldDirection(dir);

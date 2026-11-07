@@ -1,4 +1,5 @@
 // Game logic. State is a plain cloneable object so rewind/echoes can snapshot it later (M6+).
+import { newWl } from './wlayer.js';
 const REACH = 2.1, CONE = 0.5;
 const dpos = d => (d.ax === 'z' ? { x: d.pos, z: d.at } : { x: d.at, z: d.pos });
 
@@ -11,7 +12,7 @@ export function createGame(data, world, ui) {
   const defs = {}, props = {};
   data.doors.forEach(d => { defs[d.id] = d; });
   data.props.forEach(p => { props[p.id] = p; });
-  const state = { t: 0, room: null, inv: [], doors: {}, items: {}, nb: {}, nbLvl: {}, seen: {} };
+  const state = { t: 0, room: null, inv: [], doors: {}, items: {}, nb: {}, nbLvl: {}, seen: {}, wl: newWl() };
   const resetDoor = id => { state.doors[id] = { open: !!defs[id].open, locked: !!defs[id].key }; };
   data.doors.forEach(d => resetDoor(d.id));
   data.props.forEach(p => { if (p.kind === 'item') state.items[p.id] = { taken: false }; });
@@ -33,6 +34,9 @@ export function createGame(data, world, ui) {
     state.t += dt;
     const r = world.roomAt(px, pz);
     if (r && r.id !== state.room) { state.room = r.id; ui.room(r.name); emit('enter:' + r.id); }
+    for (const d of data.doors) {
+      if (d.w != null && r && d.rooms.includes(r.id) && !state.seen['see:' + d.id] && Math.abs(state.wl.w - d.w) <= (d.wt ?? 0.6)) emit('see:' + d.id);
+    }
     for (const e of data.notebook) {
       const n = state.nb[e.id];
       if (!n) continue;
@@ -53,6 +57,7 @@ export function createGame(data, world, ui) {
       if (dist - dot < bs) { bs = dist - dot; best = { kind, id, prompt }; }
     };
     for (const d of data.doors) {
+      if (d.w != null && Math.abs(state.wl.w - d.w) > (d.wt ?? 0.6)) continue; // door not present at this W
       const s = state.doors[d.id], c = dpos(d);
       const act = s.locked ? (state.inv.includes(d.key) ? 'unlock ' : '') : s.open ? 'close ' : 'open ';
       consider('door', d.id, c.x, c.z, act + d.label + (s.locked && !act ? ' (locked)' : ''));
@@ -93,6 +98,7 @@ export function createGame(data, world, ui) {
     data.props.forEach(p => {
       if (p.kind === 'item' && p.home === room.id && !state.inv.includes(p.id)) state.items[p.id].taken = false;
     });
+    Object.assign(state.wl, newWl());
     ui.toast('Room restored.'); emit('reset:' + room.id);
     return room.safe;
   };
@@ -103,5 +109,5 @@ export function createGame(data, world, ui) {
       hints: all.slice(0, lv), more: !n.done && lv < all.length };
   }).sort((a, b) => (a.done - b.done) || (a.at - b.at));
 
-  return { state, start: () => emit('start'), update, target, activate, reset, notebookView };
+  return { state, emit, start: () => emit('start'), update, target, activate, reset, notebookView };
 }
