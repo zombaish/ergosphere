@@ -12,7 +12,7 @@ export function createGame(data, world, ui) {
   const defs = {}, props = {};
   data.doors.forEach(d => { defs[d.id] = d; });
   data.props.forEach(p => { props[p.id] = p; });
-  const state = { t: 0, room: null, inv: [], doors: {}, items: {}, nb: {}, nbLvl: {}, seen: {}, wl: newWl() };
+  const state = { t: 0, room: null, inv: [], doors: {}, items: {}, nb: {}, nbLvl: {}, seen: {}, wl: newWl(), static: 0, stx: { lw: 0 }, stFreeze: false };
   const resetDoor = id => { state.doors[id] = { open: !!defs[id].open, locked: !!defs[id].key }; };
   data.doors.forEach(d => resetDoor(d.id));
   data.props.forEach(p => { if (p.kind === 'item') state.items[p.id] = { taken: false }; });

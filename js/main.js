@@ -2,6 +2,9 @@ import { loadSettings, saveSettings } from './systems/save.js';
 import { Input } from './engine/input.js';
 import { Player } from './engine/player.js';
 import { stepW } from './systems/wlayer.js';
+import { stepStatic } from './systems/static.js';
+import { lies } from './ui/lies.js';
+import { initDebug } from './ui/debug.js';
 import { initMenu } from './ui/menu.js';
 import { initTouch } from './ui/touch.js';
 import { initHud } from './ui/hud.js';
@@ -17,7 +20,7 @@ const touch = matchMedia('(pointer:coarse)').matches || 'ontouchstart' in window
 const input = new Input(canvas);
 const audio = createAudio();
 let started = false, paused = true;
-let lastLayer = -1, wMoved = false, wasBlocked = false;
+let roomName = '', firstSt = false, firstLie = false, lastLayer = -1, wMoved = false, wasBlocked = false;
 let game = null, player = null, target = null, holding = false, holdT = 0;
 const pos = { x: 0, z: 0 };
 const HOLD = 1.5; // seconds to hold Reset
@@ -53,8 +56,11 @@ function toggleSound() {
 }
 function wUi() {
   const wl = game.state.wl, lay = Math.round(wl.w);
-  hud.setW(wl.w, wl.dir);
-  hud.setTip(game.tip().replace('{W}', touch ? 'the W button' : 'Shift or F').replace('{USE}', touch ? 'USE' : 'E'));
+  const st = game.state.static, L = lies(st, performance.now() / 1000);
+  hud.setW(L.w(wl.w), L.dir(wl.dir)); hud.setStatic(st); hud.setRoom(L.text(roomName));
+  hud.setTip(L.tip(game.tip().replace('{W}', touch ? 'the W button' : 'Shift or F').replace('{USE}', touch ? 'USE' : 'E')));
+  if (st > 0.15 && !firstSt) { firstSt = true; game.emit('static:first'); }
+  if (L.on && !firstLie) { firstLie = true; game.emit('static:lies'); }
   if (!wMoved && wl.held > 0.3) { wMoved = true; game.emit('w:move'); }
   if (Math.abs(wl.w - lay) < 0.02 && lay !== lastLayer) { lastLayer = lay; game.emit('w:' + lay); audio.sfx('settle'); }
   if (wl.blocked && !wasBlocked) { hud.toast('Blocked: something solid fills that layer here.'); audio.sfx('blocked'); }
@@ -85,7 +91,7 @@ $('go').onclick = () => {
   setTimeout(() => { msg.textContent = ''; }, 7000);
 };
 document.addEventListener('pointerlockchange', () => {
-  if (!touch && started && !document.pointerLockElement && !menu.isOpen() && !notebook.isOpen()) menu.open();
+  if (!touch && started && !document.pointerLockElement && !document.body.classList.contains('dbg-open') && !menu.isOpen() && !notebook.isOpen()) menu.open();
 });
 canvas.addEventListener('click', () => { if (started && !paused) lock(); });
 
@@ -98,7 +104,7 @@ async function boot() {
     const gfx = createRenderer(canvas);
     const world = buildLevel(gfx.THREE, gfx.scene, data);
     game = createGame(data, world, {
-      room: n => hud.setRoom(n),
+      room: n => { roomName = n; hud.setRoom(n); },
       toast: m => hud.toast(m),
       say: (t, x) => hud.say(t, x),
       inv: names => hud.setInv(names),
@@ -107,6 +113,7 @@ async function boot() {
       hint: () => { hud.toast('New hint in Notebook'); hud.ping(true); },
     });
     player = new Player(world.spawn.x, world.spawn.z);
+    initDebug({ state: () => game.state, rooms: data.rooms, tp: r => { player.x = r.safe.x; player.z = r.safe.z; } });
     const cam = gfx.camera.position, dir = new gfx.THREE.Vector3();
     const STEP = 1 / 60;
     let acc = 0, last = performance.now();
@@ -119,6 +126,7 @@ async function boot() {
           const f = input.sample();
           player.step(f, world);
           stepW(game.state.wl, f, player, world);
+          stepStatic(game.state);
           world.setW(game.state.wl.w);
           acc -= STEP;
         }

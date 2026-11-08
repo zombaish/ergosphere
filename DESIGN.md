@@ -94,3 +94,4 @@ M12 Spine + Reach (Ch.5), room laws, Loom finale (6-7), endings
 - M2.5: guided W tutorial tips (tutorial[] in deck0.js, game.tip(), HUD tip box).
 - M3: procedural audio (js/engine/audio.js): drone, W whoosh, heartbeat tied to state.static, footsteps, sfx. Sound pill / M key mutes.
 - Deck 0 expansion: Locker 5 (door only at W 5), crew badge, observation vestibule, bunks and crates.
+- M4a: Static meter (systems/static.js), lying HUD (ui/lies.js), debug console (ui/debug.js, backtick or ?debug), world-aligned wall UVs.

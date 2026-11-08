@@ -23,7 +23,17 @@ export function buildLevel(THREE, scene, data) {
   const mesh = (w, h, d, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
   const box = (w, h, d, m, x, y, z) => { const o = mesh(w, h, d, m); o.position.set(x, y, z); scene.add(o); return o; };
   const near = (w, c, wt) => Math.abs(w - c) <= wt;
-  const fade = (w, c, wt) => { const d = Math.abs(w - c); return d <= wt ? 1 : Math.max(0, (wt + 0.5 - d) / 0.5); };
+  const fade = (w, c, wt) => { const d = Math.abs(w - c); return d <= wt ? 1 : Math.max(0, (wt + 0.3 - d) / 0.3); };
+  // world-aligned wall UVs: pieces of one wall (and hidden-door fillers) tile as one continuous surface
+  const wuv = o => {
+    const g = o.geometry, p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv, q = o.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i) + q.x, y = p.getY(i) + q.y, z = p.getZ(i) + q.z;
+      if (Math.abs(n.getY(i)) > 0.5) uv.setXY(i, x * 0.5, z * 0.5);
+      else uv.setXY(i, (Math.abs(n.getX(i)) > 0.5 ? z : x) * 0.5, y * 0.625);
+    }
+    uv.needsUpdate = true;
+  };
   const wMat = m => { const c = m.clone(); c.transparent = true; return c; };
   const statics = [];
   const solid = (minX, maxX, minZ, maxZ) => statics.push({ minX, maxX, minZ, maxZ });
@@ -43,8 +53,8 @@ export function buildLevel(THREE, scene, data) {
 
   // walls, cut around doors (lintel stays above each doorway)
   const wallBox = (ax, at, u0, u1, y0, y1, hard) => {
-    const len = u1 - u0, uc = (u0 + u1) / 2, h = y1 - y0, m = mat('wall', len * 0.5, h * 0.625);
-    if (ax === 'z') box(len, h, T, m, uc, y0 + h / 2, at); else box(T, h, len, m, at, y0 + h / 2, uc);
+    const len = u1 - u0, uc = (u0 + u1) / 2, h = y1 - y0, m = mat('wall', 1, 1);
+    wuv(ax === 'z' ? box(len, h, T, m, uc, y0 + h / 2, at) : box(T, h, len, m, at, y0 + h / 2, uc));
     if (hard) { if (ax === 'z') solid(u0, u1, at - T / 2, at + T / 2); else solid(at - T / 2, at + T / 2, u0, u1); }
   };
   for (const w of data.walls) {
@@ -105,8 +115,8 @@ export function buildLevel(THREE, scene, data) {
       m = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshLambertMaterial({ color: o.color || 0x6fe0ff, transparent: true, opacity: 0.9 }));
       m.position.set(o.x, o.y, o.z);
     } else {
-      m = mesh(o.sx, o.h, o.sz, wMat(mat('wall', o.sx * 0.5, o.h * 0.625)));
-      m.position.set(o.x, o.h / 2, o.z);
+      m = mesh(o.sx, o.h, o.sz, wMat(mat('wall', 1, 1)));
+      m.position.set(o.x, o.h / 2, o.z); wuv(m);
     }
     scene.add(m); return { ...o, m };
   });

@@ -66,16 +66,15 @@ export function createAudio() {
     // s = { bob, speed, w, paused, stat }
     update(dt, s) {
       if (!ctx || ctx.state !== 'running') return;
-      const t = ctx.currentTime, k = 1 + s.w * 0.035;
+      const t = ctx.currentTime, k = 1 + s.w * 0.035, st = clamp(s.stat || 0, 0, 1);
       master.gain.setTargetAtTime(muted ? 0 : s.paused ? vol * 0.4 : vol, t, 0.15);
       drone.o1.frequency.setTargetAtTime(55 * k, t, 0.3);
-      drone.o2.frequency.setTargetAtTime(55.7 * k, t, 0.3);
+      drone.o2.frequency.setTargetAtTime(55.7 * k + st * 4, t, 0.3);
       drone.o3.frequency.setTargetAtTime(27.5 * k, t, 0.3);
       const v = dt > 0 ? Math.abs(s.w - lastW) / dt : 0; lastW = s.w;
       whoosh.g.gain.setTargetAtTime(clamp(v * 0.1, 0, 0.2), t, 0.08);
       whoosh.f.frequency.setTargetAtTime(250 + s.w * 220, t, 0.1);
       if (s.paused) return;
-      const st = clamp(s.stat || 0, 0, 1);
       if (t >= nextBeat) { beat(t + 0.02, 0.05 + st * 0.5); nextBeat = t + 60 / (52 + st * 80); }
       const idx = Math.floor(s.bob / Math.PI);
       if (idx !== lastStep) { lastStep = idx; if (s.speed > 0.1) footstep(t); }
