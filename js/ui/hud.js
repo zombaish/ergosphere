@@ -30,7 +30,8 @@ const CSS = `
 #hud button{pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.12em;color:#cfe9ff;background:var(--bg);border:1px solid var(--bd);border-radius:10px}
 #hud button:active{background:rgba(127,232,255,.25)}
 #hud .use{width:72px;height:72px;font-size:13px;border-color:var(--c);color:var(--c)}
-#hud .nb,#hud .rs{width:70px;height:32px}
+#hud .nb,#hud .rs,#hud .sd{width:70px;height:32px}
+#hud .sd.off{opacity:.5}
 #hud .nb.new{border-color:#ffb030;color:#ffd080}`;
 
 export function initHud(touch, cb) {
@@ -47,7 +48,7 @@ export function initHud(touch, cb) {
   const prompt = q('.prompt'), rbar = q('.rbar'), rfill = q('.rbar i'), tipEl = q('.tip'), wtxt = q('.wc span');
   const pips = [...root.querySelectorAll('.wp i')];
   say.onclick = () => say.classList.remove('on');
-  let notesBtn = null, sayT = 0;
+  let notesBtn = null, soundBtn = null, sayT = 0;
 
   if (touch) {
     const btns = document.createElement('div'); btns.className = 'btns';
@@ -61,11 +62,13 @@ export function initHud(touch, cb) {
     };
     notesBtn = mk('nb', 'NOTES', pills, cb.notebook);
     mk('rs', 'RESET', pills, () => cb.reset(true), () => cb.reset(false));
+    soundBtn = mk('sd', 'SOUND', pills, cb.sound);
     mk('use', 'USE', btns, cb.use);
     root.append(btns, pills);
   }
 
   return {
+    setSound: on => { if (soundBtn) { soundBtn.textContent = on ? 'SOUND' : 'MUTED'; soundBtn.classList.toggle('off', !on); } },
     show: () => { root.hidden = false; },
     setRoom: n => { room.textContent = n; },
     setPrompt: s => { if (prompt.textContent !== s) prompt.textContent = s; },

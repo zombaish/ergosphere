@@ -75,18 +75,18 @@ export function createGame(data, world, ui) {
       const d = defs[t.id], s = state.doors[t.id], c = dpos(d);
       if (s.locked) {
         if (d.key && state.inv.includes(d.key)) {
-          s.locked = false; s.open = true; ui.toast('Keycard accepted.');
+          s.locked = false; s.open = true; ui.toast('Keycard accepted.'); ui.sfx?.('unlock'); ui.sfx?.('door');
           emit('unlock:' + t.id); emit('open:' + t.id);
-        } else { ui.toast(d.lockedMsg || 'Locked.'); emit('locked:' + t.id); }
+        } else { ui.toast(d.lockedMsg || 'Locked.'); ui.sfx?.('locked'); emit('locked:' + t.id); }
       } else if (s.open) {
         if (Math.hypot(c.x - px, c.z - pz) < 1.1) ui.toast('Something is in the way.');
-        else { s.open = false; emit('close:' + t.id); }
-      } else { s.open = true; emit('open:' + t.id); }
+        else { s.open = false; ui.sfx?.('door'); emit('close:' + t.id); }
+      } else { s.open = true; ui.sfx?.('door'); emit('open:' + t.id); }
     } else if (t.kind === 'item') {
       state.items[t.id].taken = true; state.inv.push(t.id); syncInv();
-      ui.toast('Picked up: ' + props[t.id].name); emit('pickup:' + t.id);
+      ui.toast('Picked up: ' + props[t.id].name); ui.sfx?.('pickup'); emit('pickup:' + t.id);
     } else {
-      ui.say(props[t.id].name, props[t.id].text); emit('read:' + t.id);
+      ui.say(props[t.id].name, props[t.id].text); ui.sfx?.('note'); emit('read:' + t.id);
     }
   };
 
@@ -99,7 +99,7 @@ export function createGame(data, world, ui) {
       if (p.kind === 'item' && p.home === room.id && !state.inv.includes(p.id)) state.items[p.id].taken = false;
     });
     Object.assign(state.wl, newWl());
-    ui.toast('Room restored.'); emit('reset:' + room.id);
+    ui.toast('Room restored.'); ui.sfx?.('reset'); emit('reset:' + room.id);
     return room.safe;
   };
 

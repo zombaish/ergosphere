@@ -5,6 +5,7 @@ import { stepW } from './systems/wlayer.js';
 import { initMenu } from './ui/menu.js';
 import { initTouch } from './ui/touch.js';
 import { initHud } from './ui/hud.js';
+import { createAudio } from './engine/audio.js';
 import { initTheme } from './ui/theme.js';
 import { initNotebook } from './ui/notebook.js';
 
@@ -14,6 +15,7 @@ const canvas = $('game'), msg = $('msg');
 const settings = loadSettings();
 const touch = matchMedia('(pointer:coarse)').matches || 'ontouchstart' in window;
 const input = new Input(canvas);
+const audio = createAudio();
 let started = false, paused = true;
 let lastLayer = -1, wMoved = false, wasBlocked = false;
 let game = null, player = null, target = null, holding = false, holdT = 0;
@@ -21,7 +23,7 @@ const pos = { x: 0, z: 0 };
 const HOLD = 1.5; // seconds to hold Reset
 const lock = () => { if (!touch) try { canvas.requestPointerLock(); } catch {} };
 
-const hud = initHud(touch, { use: () => use(), notebook: () => toggleNotebook(), reset: v => { holding = v; } });
+const hud = initHud(touch, { use: () => use(), notebook: () => toggleNotebook(), reset: v => { holding = v; }, sound: () => toggleSound() });
 const notebook = initNotebook({ close: () => closeNotebook() });
 
 const menu = initMenu(settings, saveSettings, {
@@ -45,13 +47,16 @@ function closeNotebook() {
   if (started && !menu.isOpen()) { paused = false; lock(); }
 }
 const toggleNotebook = () => (notebook.isOpen() ? closeNotebook() : openNotebook());
+function toggleSound() {
+  const m = audio.toggleMute(); hud.setSound(!m); hud.toast(m ? 'Sound off' : 'Sound on', 1500);
+}
 function wUi() {
   const wl = game.state.wl, lay = Math.round(wl.w);
   hud.setW(wl.w, wl.dir);
   hud.setTip(game.tip().replace('{W}', touch ? 'the W button' : 'Shift or F').replace('{USE}', touch ? 'USE' : 'E'));
   if (!wMoved && wl.held > 0.3) { wMoved = true; game.emit('w:move'); }
-  if (Math.abs(wl.w - lay) < 0.02 && lay !== lastLayer) { lastLayer = lay; game.emit('w:' + lay); }
-  if (wl.blocked && !wasBlocked) hud.toast('Blocked: something solid fills that layer here.');
+  if (Math.abs(wl.w - lay) < 0.02 && lay !== lastLayer) { lastLayer = lay; game.emit('w:' + lay); audio.sfx('settle'); }
+  if (wl.blocked && !wasBlocked) { hud.toast('Blocked: something solid fills that layer here.'); audio.sfx('blocked'); }
   wasBlocked = wl.blocked;
 }
 function doReset() {
@@ -64,6 +69,7 @@ function doReset() {
 addEventListener('keydown', e => {
   if (e.repeat || !started || menu.isOpen()) return;
   if (e.code === 'KeyN' || e.code === 'Tab') { e.preventDefault(); toggleNotebook(); }
+  else if (e.code === 'KeyM') toggleSound();
   else if (paused) return;
   else if (e.code === 'KeyE') use();
   else if (e.code === 'KeyX') holding = true;
@@ -72,7 +78,7 @@ addEventListener('keyup', e => { if (e.code === 'KeyX') holding = false; });
 
 $('go').onclick = () => {
   $('start').hidden = true; started = true; paused = false; lock();
-  hud.show(); game.start();
+  hud.show(); game.start(); audio.start(); hud.setSound(!audio.isMuted());
   msg.textContent = touch ? 'USE interacts · NOTES opens notebook · hold RESET if stuck'
     : 'WASD move · mouse look · E use · N notebook · hold X reset · Esc menu';
   setTimeout(() => { msg.textContent = ''; }, 7000);
@@ -95,7 +101,8 @@ async function boot() {
       toast: m => hud.toast(m),
       say: (t, x) => hud.say(t, x),
       inv: names => hud.setInv(names),
-      entry: e => { hud.toast('Notebook: ' + e.title); hud.ping(true); },
+      sfx: n => audio.sfx(n),
+      entry: e => { hud.toast('Notebook: ' + e.title); hud.ping(true); audio.sfx('note'); },
       hint: () => { hud.toast('New hint in Notebook'); hud.ping(true); },
     });
     player = new Player(world.spawn.x, world.spawn.z);
@@ -116,7 +123,7 @@ async function boot() {
         }
       }
       player.applyTo(gfx.camera);
-      if (game) wUi();
+      if (game) { wUi(); audio.update(dt, { bob: player.bob, speed: player.speed, w: game.state.wl.w, paused, stat: game.state.static || 0 }); }
       gfx.lamp.position.copy(gfx.camera.position);
       if (!paused) {
         gfx.camera.getWorldDirection(dir);
