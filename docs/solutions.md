@@ -30,3 +30,17 @@ One entry per puzzle: room, goal, step-by-step solution, Notebook hint text, sof
 **Notebook hints (auto-fill):** "Hatch override" appears after reading the hatch console (hints at 35 s, 70 s, 105 s); "A door at W 2" appears when you first see the door.
 
 **Soft-lock escape:** hold Reset (X / RESET, 1.5 s). It restores the room's doors and items, moves you to the safe spot and sets W back to 0. W-shift itself never lets you end up inside a solid object.
+
+## Deck 0 (M2.6): Locker 5 and the way down
+
+**Goal:** reach the Observation Vestibule (end of Deck 0 for now).
+
+**Solution**
+1. Dormitory: read the bunk console. It says locker 5 holds the badge and opens only "when the station sits at 5".
+2. Settle on **W 5** (hold W, release on layer 5). A door appears in the **east wall** (near the south end) and the wall gap opens.
+3. Open it (USE), walk into the locker, take the **crew badge**. Leave through the same door while still on W 5.
+4. Go to the dormitory's north door and use it with the badge. It opens into the Observation Vestibule.
+
+**Notebook hints:** "Locker 5" (hints at 35, 70, 105 s), "The north door".
+
+**Soft-lock escapes:** shifting W while standing in the doorway is refused. If you are sealed inside the locker (W is not 5), shift back to W 5 and the door reappears. Hold Reset also restores the room; note that Reset sets W to 0, so from inside the locker shift to W 5 again.

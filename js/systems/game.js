@@ -75,7 +75,7 @@ export function createGame(data, world, ui) {
       const d = defs[t.id], s = state.doors[t.id], c = dpos(d);
       if (s.locked) {
         if (d.key && state.inv.includes(d.key)) {
-          s.locked = false; s.open = true; ui.toast('Keycard accepted.'); ui.sfx?.('unlock'); ui.sfx?.('door');
+          s.locked = false; s.open = true; ui.toast(d.okMsg || 'Keycard accepted.'); ui.sfx?.('unlock'); ui.sfx?.('door');
           emit('unlock:' + t.id); emit('open:' + t.id);
         } else { ui.toast(d.lockedMsg || 'Locked.'); ui.sfx?.('locked'); emit('locked:' + t.id); }
       } else if (s.open) {

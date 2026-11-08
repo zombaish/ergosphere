@@ -11,6 +11,8 @@ export default {
     { id: 'storage', name: 'Storage', minX: -11, maxX: -3, minZ: -12, maxZ: -4, safe: { x: -5, z: -8 }, light: { color: 0xffc080, i: 3 } },
     { id: 'antechamber', name: 'Dormitory Antechamber', minX: -3, maxX: 3, minZ: -24, maxZ: -16, safe: { x: 0, z: -20 }, light: { color: 0xb090ff, i: 3 } },
     { id: 'dormitory', name: 'Dormitory', minX: -3, maxX: 3, minZ: -32, maxZ: -24, safe: { x: -1.8, z: -26.5 }, light: { color: 0x8fd0ff, i: 3 } },
+    { id: 'locker', name: 'Locker 5', minX: 3, maxX: 6, minZ: -31, maxZ: -27, safe: { x: 5, z: -29 }, light: { color: 0xffd9a0, i: 2.5 } },
+    { id: 'vestibule', name: 'Observation Vestibule', minX: -3, maxX: 3, minZ: -40, maxZ: -32, safe: { x: 0, z: -36 }, light: { color: 0x70e0ff, i: 3 } },
   ],
   walls: [
     { ax: 'z', at: 8, from: -3, to: 3 },
@@ -18,8 +20,12 @@ export default {
     { ax: 'z', at: -16, from: -3, to: 3 },
     { ax: 'z', at: -24, from: -3, to: 3 },
     { ax: 'z', at: -32, from: -3, to: 3 },
-    { ax: 'x', at: 3, from: -32, to: 8 },
-    { ax: 'x', at: -3, from: -32, to: 8 },
+    { ax: 'z', at: -40, from: -3, to: 3 },
+    { ax: 'x', at: 3, from: -40, to: 8 },
+    { ax: 'x', at: -3, from: -40, to: 8 },
+    { ax: 'z', at: -31, from: 3, to: 6 },
+    { ax: 'z', at: -27, from: 3, to: 6 },
+    { ax: 'x', at: 6, from: -31, to: -27 },
     { ax: 'z', at: -4, from: -11, to: -3 },
     { ax: 'z', at: -12, from: -11, to: -3 },
     { ax: 'x', at: -11, from: -12, to: -4 },
@@ -31,6 +37,9 @@ export default {
       label: 'dormitory door', lockedMsg: 'Locked. The panel wants a keycard.' },
     // w/wt: exists (visible + solid) only while |W - w| <= wt. Fillers below seal its gap at every other layer.
     { id: 'd4', ax: 'z', at: -24, pos: 0, rooms: ['antechamber', 'dormitory'], w: 2, wt: 0.6, label: 'hidden door' },
+    { id: 'd5', ax: 'x', at: 3, pos: -29, rooms: ['dormitory', 'locker'], w: 5, wt: 0.6, label: 'locker door' },
+    { id: 'd6', ax: 'z', at: -32, pos: 0, rooms: ['dormitory', 'vestibule'], key: 'badge', label: 'observatory door',
+      lockedMsg: 'Locked. The reader wants a crew badge.', okMsg: 'Badge accepted.' },
   ],
   // kind 'item' = pick up (goes in inventory under its id); 'note' = readable console (solid).
   props: [
@@ -39,14 +48,19 @@ export default {
     { id: 'keycard', kind: 'item', name: 'Dormitory keycard', home: 'storage', x: -9.5, z: -10.5, color: 0xffb030 },
     { id: 'hatch_note', kind: 'note', name: 'Hatch panel', home: 'antechamber', x: -2.65, z: -20, w: 0.4, d: 0.9,
       text: 'HATCH 1A, DORMITORY\nSeals on loss of crew.\nOverride requires leaving the plane.\nNOT AVAILABLE.' },
-    { id: 'dorm_note', kind: 'note', name: 'Bunk console', home: 'dormitory', x: 2.65, z: -28, w: 0.4, d: 0.9,
-      text: 'DORMITORY ROSTER\nEvery bunk is made. Every bunk is warm.\nThe round thing in the middle was not here yesterday. It gets bigger, then smaller, then it is gone.' },
+    { id: 'dorm_note', kind: 'note', name: 'Bunk console', home: 'dormitory', x: 2.65, z: -25.6, w: 0.4, d: 0.9,
+      text: 'DORMITORY ROSTER\nEvery bunk is made. Every bunk is warm.\nThe round thing in the middle was not here yesterday. It gets bigger, then smaller, then it is gone.\nLOCKER 5 holds the badge. Its door only opens when the station sits at 5.' },
+    { id: 'badge', kind: 'item', name: 'Crew badge', home: 'locker', x: 5.2, z: -29, color: 0x6fe0ff },
+    { id: 'lift_note', kind: 'note', name: 'Lift panel', home: 'vestibule', x: -2.65, z: -36, w: 0.4, d: 0.9,
+      text: 'LIFT TO DECK 1\nOFFLINE. Power is fine. The lift is somewhere else in time.\nTo call it, a thread must be run through the seam wall.' },
   ],
   // W objects. block: x,z centre, sx*sz footprint, h tall. sphere: centre x,y,z and radius r (cross-section
   // radius = sqrt(r^2 - dW^2)). w = centre layer, wt = half-thickness in layers.
   wobjs: [
     { id: 'fill_a', kind: 'block', x: 0, z: -24, sx: 1.6, sz: 0.3, h: 2.4, w: 0.5, wt: 1.1 },
     { id: 'fill_b', kind: 'block', x: 0, z: -24, sx: 1.6, sz: 0.3, h: 2.4, w: 4.5, wt: 2.1 },
+    { id: 'fill_c', kind: 'block', x: 3, z: -29, sx: 0.3, sz: 1.6, h: 2.4, w: 2, wt: 2.6 },
+    { id: 'fill_d', kind: 'block', x: 3, z: -29, sx: 0.3, sz: 1.6, h: 2.4, w: 6, wt: 0.6 },
     { id: 'orb', kind: 'sphere', x: 0, y: 1.1, z: -28, r: 1.3, w: 3, color: 0x6fe0ff },
   ],
   scenery: [
@@ -55,8 +69,12 @@ export default {
     { x: -9.2, z: -5.3, w: 1.6, d: 1.0, h: 1.1 },
     { x: -5.0, z: -11.0, w: 1.2, d: 1.2, h: 2.2 },
     { x: -10.2, z: -8.5, w: 1.0, d: 1.6, h: 1.6 },
+    { x: -2.0, z: -12.2, w: 0.9, d: 0.9, h: 0.8 },
+    { x: 2.0, z: -13.4, w: 1.1, d: 0.8, h: 1.2 },
+    { x: -2.25, z: -30.9, w: 1.2, d: 1.8, h: 0.7 },
+    { x: -2.25, z: -28.8, w: 1.2, d: 1.8, h: 0.7 },
   ],
-  seams: [{ x: 2.82, y: 1.5, z: -20, ry: -Math.PI / 2, w: 3, h: 2 }], // portals go here in M5
+  seams: [{ x: 2.82, y: 1.5, z: -20, ry: -Math.PI / 2, w: 3, h: 2 }, { x: 0, y: 1.5, z: -39.82, ry: 0, w: 3, h: 2 }], // portals go here in M5
   // Guided tips (top centre). Sequential: a tip shows once "on" has happened and until "until" (event or list) has.
   tutorial: [
     { on: 'enter:antechamber', until: 'w:move', text: 'The hatch says: leave the plane. Hold {W} to slide along W, the fourth axis.' },
@@ -92,6 +110,14 @@ export default {
     { id: 'seen4', on: 'see:d4', done: 'open:d4', title: 'A door at W 2',
       text: 'At W 2 the north wall of the antechamber has a door. At every other layer it is plain wall.',
       hints: ['Open it while standing at W 2. Do not shift away while standing in the doorway.'], hintAfter: 30 },
+    { id: 'locker', on: 'read:dorm_note', done: 'pickup:badge', title: 'Locker 5',
+      text: 'The roster says the crew badge is in locker 5, and its door only opens when the station sits at 5. There is no door in the east wall.',
+      hints: ['Doors can exist at only one layer. The hidden door in the antechamber was at W 2.', 'Settle on W 5 and look at the east wall of the dormitory.', 'Take the badge, then leave through the same door at W 5. If you get sealed in, shift back to W 5.'], hintAfter: 35 },
+    { id: 'badgedoor', on: 'locked:d6', done: 'unlock:d6', title: 'The north door',
+      text: 'The door at the north end of the dormitory wants a crew badge.',
+      hints: ['The roster mentions a locker. Read the bunk console.'], hintAfter: 40 },
+    { id: 'vest', on: 'enter:vestibule', title: 'The way down',
+      text: 'The lift is dead and the north wall glows violet like the one in the antechamber. I will need to reach through it. Not yet.' },
     { id: 'dorm', on: 'enter:dormitory', title: 'Dormitory',
       text: 'Empty bunks, still warm. A glowing sphere hangs in the middle of the room.',
       hints: ['Shift W slowly and watch the sphere. It is a slice of a 4D ball: biggest at W 3, gone far from it.'], hintAfter: 40 },
