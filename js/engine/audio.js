@@ -4,7 +4,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export function createAudio() {
   let ctx = null, master = null, white = null, brown = null, drone = null, whoosh = null;
-  let nextBeat = 0, lastStep = 0, lastW = 0, foot = 0, muted = false;
+  let vol = 0.8, nextBeat = 0, lastStep = 0, lastW = 0, foot = 0, muted = false;
   try { muted = localStorage.getItem('ergo_mute') === '1'; } catch {}
 
   const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
@@ -30,7 +30,7 @@ export function createAudio() {
   };
 
   function build() {
-    master = ctx.createGain(); master.gain.value = muted ? 0 : 0.8;
+    master = ctx.createGain(); master.gain.value = muted ? 0 : vol;
     const comp = ctx.createDynamicsCompressor(); master.connect(comp); comp.connect(ctx.destination);
     white = buffer((l, set) => Math.random() * 2 - 1);
     brown = buffer((l, set) => { const v = (l + 0.02 * (Math.random() * 2 - 1)) / 1.02; set(v); return v * 3.5; });
@@ -67,7 +67,7 @@ export function createAudio() {
     update(dt, s) {
       if (!ctx || ctx.state !== 'running') return;
       const t = ctx.currentTime, k = 1 + s.w * 0.035;
-      master.gain.setTargetAtTime(muted ? 0 : s.paused ? 0.3 : 0.8, t, 0.15);
+      master.gain.setTargetAtTime(muted ? 0 : s.paused ? vol * 0.4 : vol, t, 0.15);
       drone.o1.frequency.setTargetAtTime(55 * k, t, 0.3);
       drone.o2.frequency.setTargetAtTime(55.7 * k, t, 0.3);
       drone.o3.frequency.setTargetAtTime(27.5 * k, t, 0.3);
@@ -92,6 +92,7 @@ export function createAudio() {
       else if (name === 'blocked') tone(t, 80, 70, 0.18, 0.12, 'sawtooth');
       else if (name === 'reset') tone(t, 220, 90, 0.4, 0.1);
     },
+    setVolume(v) { vol = clamp(v, 0, 1); },
     toggleMute() {
       muted = !muted;
       try { localStorage.setItem('ergo_mute', muted ? '1' : '0'); } catch {}

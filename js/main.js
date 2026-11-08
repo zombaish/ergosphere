@@ -28,6 +28,7 @@ const notebook = initNotebook({ close: () => closeNotebook() });
 
 const menu = initMenu(settings, saveSettings, {
   onChange: s => { input.sens = s.sens; },
+  onVolume: v => audio.setVolume(v),
   onOpen: () => { document.body.classList.add('menu-open'); paused = true; input.reset(); notebook.close(); document.exitPointerLock?.(); },
   onClose: () => { document.body.classList.remove('menu-open'); if (started) { paused = false; lock(); } },
 });
